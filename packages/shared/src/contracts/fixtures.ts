@@ -76,6 +76,26 @@ export const previewExamples = [
   result: PreviewResult;
 }[];
 
+export const representativeExamples = [
+  {
+    selected: [tile(3, 0), tile(3, 1), tile(3, 2)],
+    tableHand: null,
+    maxNumber: 9,
+    result: { ok: true, kind: "TRIPLE", representative: 3 },
+  },
+  {
+    selected: [tile(1, 0), tile(2, 1), tile(3, 2), tile(4, 3), tile(5, 0)],
+    tableHand: null,
+    maxNumber: 9,
+    result: { ok: true, kind: "STRAIGHT", representative: tile(2, 1) },
+  },
+] as const satisfies readonly {
+  selected: readonly Tile[];
+  tableHand: null;
+  maxNumber: 9;
+  result: PreviewResult;
+}[];
+
 function slot(
   remainingTileCount = 0,
   chips = 64,

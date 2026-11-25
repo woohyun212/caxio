@@ -233,6 +233,31 @@ test("preview specimens and rejection precedence", () => {
     { number: 3, suit: 2 },
   ]);
   expect(lower.result.reason).toBe("NOT_HIGHER");
+  const [triple, straight] = fixtures.representativeExamples;
+  expect([triple.tableHand, straight.tableHand]).toEqual([null, null]);
+  expect([triple.maxNumber, straight.maxNumber]).toEqual([9, 9]);
+  expect(triple.selected).toEqual([
+    { number: 3, suit: 0 },
+    { number: 3, suit: 1 },
+    { number: 3, suit: 2 },
+  ]);
+  expect(triple.result).toEqual({
+    ok: true,
+    kind: "TRIPLE",
+    representative: 3,
+  });
+  expect(straight.selected).toEqual([
+    { number: 1, suit: 0 },
+    { number: 2, suit: 1 },
+    { number: 3, suit: 2 },
+    { number: 4, suit: 3 },
+    { number: 5, suit: 0 },
+  ]);
+  expect(straight.result).toEqual({
+    ok: true,
+    kind: "STRAIGHT",
+    representative: { number: 2, suit: 1 },
+  });
 });
 test("app ports use only shared type imports", async () => {
   for (const app of ["web", "server"]) {
