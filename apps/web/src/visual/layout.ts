@@ -1,4 +1,4 @@
-import { frame, stage, tile } from "./tokens";
+import { frame, sceneZones, stage, tile } from "./tokens";
 
 export type Rect = {
   readonly x: number;
@@ -8,7 +8,7 @@ export type Rect = {
 };
 export type Seat = {
   readonly seatId: number;
-  readonly center: { readonly x: number; readonly y: number };
+  readonly centerX: number;
   readonly rack: Rect;
   readonly nameplate: Rect;
 };
@@ -57,13 +57,14 @@ export function layout(
 ): Layout {
   const selfIndex = seatOrder.indexOf(self);
   if (
-    seatOrder.length < 3 ||
     seatOrder.length > 5 ||
-    selfIndex < 0 ||
+    (seatOrder.length > 0 && selfIndex < 0) ||
     new Set(seatOrder).size !== seatOrder.length ||
-    seatOrder.some((id) => !Number.isInteger(id) || id < 0 || id > 4)
+    [...seatOrder].some((id) => !Number.isInteger(id) || id < 0 || id > 4)
   )
-    throw new RangeError("Expected 3–5 distinct seat IDs including self");
+    throw new RangeError(
+      "Expected an empty order or distinct seat IDs 0–4 including self",
+    );
   if (
     !Number.isInteger(handCount) ||
     handCount < 0 ||
@@ -76,19 +77,19 @@ export function layout(
     ...seatOrder.slice(selfIndex + 1),
     ...seatOrder.slice(0, selfIndex),
   ];
-  const col = Math.floor(frame.width / opponents.length);
+  const col = opponents.length ? Math.floor(frame.width / opponents.length) : 0;
   const margin = Math.floor((frame.width - col * opponents.length) / 2);
   const seats = opponents.map((seatId, i) => {
     const x = margin + i * col;
     return {
       seatId,
-      center: { x: x + col / 2, y: stage.rackCenterY },
-      rack: { x, y: 0, w: col, h: frame.rackHeight },
+      centerX: x + col / 2,
+      rack: { ...sceneZones.racks, x, w: col },
       nameplate: {
         x: x + stage.nameplateInset,
-        y: frame.rackHeight,
+        y: sceneZones.nameplates.y,
         w: col - 2 * stage.nameplateInset,
-        h: frame.nameplateHeight,
+        h: sceneZones.nameplates.h,
       },
     };
   });
@@ -96,7 +97,7 @@ export function layout(
     seats,
     hand: slots(handCount, tile.handY),
     table: slots(tableCount, tile.tableY),
-    felt: stage.tableZone,
+    felt: sceneZones.table,
   };
 }
 

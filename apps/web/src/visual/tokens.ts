@@ -17,13 +17,16 @@ export const frame = {
   messageHeight: 16,
   commandHeight: 22,
   wideMinScale: 2,
-  rackHeight: 30,
-  nameplateHeight: 16,
-  handZoneY: 144,
+} as const;
+
+export const sceneZones = {
+  racks: { x: 0, y: 0, w: frame.width, h: 30 },
+  nameplates: { x: 0, y: 30, w: frame.width, h: 16 },
+  table: { x: 0, y: 46, w: frame.width, h: 98 },
+  hand: { x: 0, y: 144, w: frame.width, h: 52 },
 } as const;
 
 export const stage = {
-  tableZone: { x: 0, y: 46, w: 416, h: 98 },
   caption: { x: 130, y: 59, w: 156, h: 16 },
   stadium: {
     x: 208,
@@ -69,6 +72,19 @@ export const bayer = [
   [3, 11, 1, 9],
   [15, 7, 13, 5],
 ] as const;
+
+export function bayerThreshold(x: number, y: number): number {
+  const rank = bayer[y % 4]?.[x % 4];
+  if (rank === undefined || x < 0 || y < 0)
+    throw new RangeError(
+      "Bayer target coordinates must be nonnegative integers",
+    );
+  return (rank + 0.5) / 16;
+}
+
+export function bayerLight(x: number, y: number, coverage: number): boolean {
+  return coverage > bayerThreshold(x, y);
+}
 
 export const feltBands = {
   outerEnd: 12,

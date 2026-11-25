@@ -6,7 +6,49 @@ import {
   type Rect,
   seatLabel,
 } from "../../apps/web/src/visual/layout";
-import { frame, stage, tile } from "../../apps/web/src/visual/tokens";
+import { stage, tile } from "../../apps/web/src/visual/tokens";
+
+type ConsumerRect = Readonly<{ x: number; y: number; w: number; h: number }>;
+type ConsumerLayout = Readonly<{
+  seats: readonly Readonly<{
+    seatId: number;
+    centerX: number;
+    rack: ConsumerRect;
+    nameplate: ConsumerRect;
+  }>[];
+  hand: readonly ConsumerRect[];
+  table: readonly ConsumerRect[];
+  felt: ConsumerRect;
+}>;
+
+test("layout is assignable to the table and controls consumer shape", () => {
+  const consumed: ConsumerLayout = layout([0, 1, 2, 3], 0, 13, 5);
+  expect(consumed.seats.map((seat) => seat.centerX)).toEqual([70, 208, 346]);
+  expect(stage.rackCenterY).toBe(26);
+});
+
+test("entry and lobby layout supports zero, one and two occupants", () => {
+  const empty = {
+    seats: [],
+    hand: [],
+    table: [],
+    felt: { x: 0, y: 46, w: 416, h: 98 },
+  };
+  expect(layout([], -1, 0, 0)).toEqual(empty);
+  expect(layout([], NaN, 0, 0)).toEqual(empty);
+  expect(layout([2], 2, 0, 0)).toEqual(empty);
+  expect(layout([3, 1], 1, 0, 0)).toEqual({
+    ...empty,
+    seats: [
+      {
+        seatId: 3,
+        centerX: 208,
+        rack: { x: 0, y: 0, w: 416, h: 30 },
+        nameplate: { x: 4, y: 30, w: 408, h: 16 },
+      },
+    ],
+  });
+});
 
 test("opponent columns wrap after self and preserve starting order", () => {
   for (const [order, self, ids, centers, starts, column, boxWidth] of [
@@ -24,9 +66,7 @@ test("opponent columns wrap after self and preserve starting order", () => {
   ] as const) {
     const { seats } = layout(order, self, 13, 5);
     expect(seats.map((s) => s.seatId)).toEqual([...ids]);
-    expect(seats.map((s) => s.center)).toEqual(
-      centers.map((x) => ({ x, y: 26 })),
-    );
+    expect(seats.map((s) => s.centerX)).toEqual([...centers]);
     expect(seats.map((s) => s.rack)).toEqual(
       starts.map((x) => ({ x, y: 0, w: column, h: 30 })),
     );
@@ -180,18 +220,6 @@ test("Q3 selection lifts the face and keeps the ground at the target slot", () =
   expect(
     [12, 13].map((n) => stage.backWidth + (n - 1) * stage.backPitch),
   ).toEqual([86, 92]);
-  expect(frame).toEqual({
-    width: 416,
-    height: 250,
-    statusHeight: 16,
-    sceneHeight: 196,
-    messageHeight: 16,
-    commandHeight: 22,
-    wideMinScale: 2,
-    rackHeight: 30,
-    nameplateHeight: 16,
-    handZoneY: 144,
-  });
 });
 
 test("hand and center share number-first order for every round maximum without mutating tiles", () => {
@@ -246,14 +274,21 @@ test("seat labels use one-based Korean numbering", () => {
 
 test("invalid layout, viewport and round inputs throw RangeError", () => {
   for (const order of [
-    [0, 1],
+    [1],
+    [1, 2],
     [1, 2, 3],
     [0, 1, 1],
     [0, 1, 2, 3, 4, 5],
     [0, 1, 5],
     [0, 1, 1.5],
+    [0, -1],
   ])
     expect(() => layout(order, 0, 0, 0)).toThrow(RangeError);
+  const missingId = new Array<number>(2);
+  missingId[0] = 0;
+  expect(() => layout(missingId, 0, 0, 0)).toThrow(RangeError);
+  expect(() => layout([], -1, -1, 0)).toThrow(RangeError);
+  expect(() => layout([], -1, 0, 4)).toThrow(RangeError);
   for (const count of [-1, 1.5, 14, NaN, Infinity])
     expect(() => layout([0, 1, 2], 0, count, 0)).toThrow(RangeError);
   for (const count of [-1, 1.5, 4, 6, NaN, Infinity])
