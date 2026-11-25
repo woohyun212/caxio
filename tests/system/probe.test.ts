@@ -1,0 +1,145 @@
+import { expect, test } from "bun:test";
+import { handOrder } from "../../apps/web/src/visual/layout";
+import { firstDealState } from "../../packages/shared/src/contracts/fixtures";
+import { assets, type Fault, fixture } from "./fixture";
+import { runProbe } from "./probe";
+
+async function run(fault?: Fault) {
+  const server = fixture(fault),
+    lines: string[] = [];
+  try {
+    const code = await runProbe(server.origin, {
+      assets,
+      log: (line) => lines.push(line),
+      readinessMs: 70,
+      frameMs: fault === "silent" ? 45 : 1000,
+      totalMs: fault === "endless" ? 180 : 3000,
+    });
+    for (const token of server.tokens)
+      expect(lines.join("\n")).not.toContain(token);
+    return {
+      code,
+      output: lines.join("\n"),
+      observations: server.observations,
+    };
+  } finally {
+    await server.stop();
+  }
+}
+test("three real sockets, seven rejections, lost and final resumes", async () => {
+  const { code, output, observations } = await run();
+  const ordered = handOrder(firstDealState.players[0].hand, 9);
+  expect(observations).toEqual({
+    activeResumes: 2,
+    finalResumes: [0, 1, 2],
+    replacedPlays: ordered.slice(1, 2),
+    leads: [...ordered],
+  });
+  expect(output).toContain("summary PASS");
+  expect(code).toBe(0);
+  for (const id of [
+    "http.ready",
+    "http.html",
+    "http.missing",
+    "http.health",
+    ...assets.map((a) => `asset${a.url}`),
+    "ws.open",
+    "resume.active",
+    "resume.final",
+    "game.final",
+    ...[
+      "INVALID_MESSAGE",
+      "NOT_YOUR_TURN",
+      "STALE_TURN",
+      "NOT_OWNED",
+      "DUPLICATE_TILE",
+      "ILLEGAL_HAND",
+      "NOT_HIGHER",
+      "RESUME_DENIED",
+    ].map((s) => `reject.${s}`),
+  ])
+    expect(output).toContain(`${id} PASS`);
+});
+for (const [fault, reason] of [
+  ["asset", "atlas-wide.png FAIL"],
+  ["leak", "foreign seat token"],
+  ["missing", "http.missing FAIL"],
+  ["approve", "expected ERROR"],
+  ["silent", "frame budget"],
+  ["endless", "total budget"],
+  ["unready", "readiness budget"],
+  ["old-play", "lastPlay mismatch"],
+  ["old-close", "disconnected live seat"],
+  ["no-lower", "unexercised NOT_HIGHER"],
+] as const)
+  test(`detect ${fault}`, async () => {
+    const { code, output } = await run(fault);
+    expect(output).toContain(reason);
+    expect(code).toBe(1);
+    expect(output).toContain("http.health ");
+    expect(output).toContain("asset/fonts/ofl.md ");
+  });
+test("CLI usage exits 2", () => {
+  for (const args of [[], ["invalid origin"]]) {
+    const result = Bun.spawnSync([
+      process.execPath,
+      new URL("./probe.ts", import.meta.url).pathname,
+      ...args,
+    ]);
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr.toString()).toContain("Usage:");
+  }
+});
+
+test("CLI reports a leaking frame without printing credentials", async () => {
+  const server = fixture("leak");
+  try {
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        new URL("./probe.ts", import.meta.url).pathname,
+        server.origin,
+      ],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    const [code, out, err] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(code).toBe(1);
+    expect(out).toContain("foreign seat token");
+    for (const token of server.tokens) expect(out + err).not.toContain(token);
+  } finally {
+    await server.stop();
+  }
+});
+
+test("final resume for a seat eliminated at payment", async () => {
+  const result = await run("elimination");
+  expect(result.output).toContain("resume.final PASS");
+  expect(result.code).toBe(0);
+});
+
+test("refused connection exhausts readiness and still reports HTTP and WebSocket checks", async () => {
+  const server = fixture();
+  await server.stop();
+  const lines: string[] = [];
+  const code = await runProbe(server.origin, {
+    assets,
+    readinessMs: 25,
+    frameMs: 100,
+    totalMs: 800,
+    log: (line) => lines.push(line),
+  });
+  expect(code).toBe(1);
+  for (const id of [
+    "http.ready",
+    "http.html",
+    "http.missing",
+    "http.health",
+    ...assets.map((a) => `asset${a.url}`),
+    "ws.open",
+  ])
+    expect(lines.some((l) => l.startsWith(`${id} FAIL`))).toBe(true);
+});
