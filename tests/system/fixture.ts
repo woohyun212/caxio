@@ -34,6 +34,17 @@ export const assets = [atlases.wide, atlases.compact, ...fontFiles].map(
 );
 type Socket = ServerWebSocket<{ id: SeatId | null }>;
 export type Fault =
+  | "replay"
+  | "replaced-notice"
+  | "wrong-error"
+  | "extra-error"
+  | "resume-token"
+  | "resume-hand"
+  | "accepted-token"
+  | "split-table"
+  | "wrong-leader"
+  | "chip-total"
+  | "final-table"
   | "asset"
   | "leak"
   | "missing"
@@ -90,7 +101,14 @@ export function fixture(fault?: Fault) {
         ? {
             remainingTileCount: hands[i]?.length ?? 0,
             chips: need(chips[i], "missing chips"),
-            isConnected: bound.has(i),
+            isConnected:
+              bound.has(i) &&
+              !(
+                fault === "split-table" &&
+                phase === "ROUND_START" &&
+                id === 1 &&
+                i === 2
+              ),
             isOut: chips[i] === 0,
           }
         : null;
@@ -185,7 +203,10 @@ export function fixture(fault?: Fault) {
     } as const;
     if (fault === "leak" && id === 0 && seats.length === 3)
       ws.send(JSON.stringify({ ...frame, leak: token(1) }));
-    else send(ws, frame);
+    else {
+      send(ws, frame);
+      if (fault === "replay") send(ws, { ...frame, serverNow: now + 1 });
+    }
   }
   function broadcast() {
     revision += 2;
@@ -194,7 +215,7 @@ export function fixture(fault?: Fault) {
   function deal() {
     round++;
     phase = "ROUND_START";
-    current = 0;
+    current = fault === "wrong-leader" ? 1 : 0;
     lastAction = null;
     lastPlay = null;
     tableHand = null;
@@ -258,7 +279,20 @@ export function fixture(fault?: Fault) {
         }
       },
       message(ws, raw) {
-        const reject = (code: ErrorCode) => send(ws, { type: "ERROR", code });
+        const reject = (code: ErrorCode) => {
+          if (code === "DUPLICATE_TILE" && fault === "wrong-error")
+            code = "NOT_OWNED";
+          if (code === "DUPLICATE_TILE" && fault === "extra-error") {
+            send(need(bound.get(2), "missing spectator socket"), {
+              type: "ERROR",
+              code,
+            });
+            setTimeout(() => send(ws, { type: "ERROR", code }), 5);
+          } else if (code === "RESUME_DENIED" && fault === "accepted-token") {
+            // Inject the wire reply a client would observe if an invalid credential were accepted.
+            send(ws, { type: "SEATED", roomCode, seatId: 0, token: token(0) });
+          } else send(ws, { type: "ERROR", code });
+        };
         const cmd = decodeCommand(raw);
         if (cmd === "INVALID_MESSAGE") return reject(cmd);
         if (
@@ -278,9 +312,36 @@ export function fixture(fault?: Fault) {
           if (cmd.type !== "RESUME") seats.push(id);
           else if (phase === "GAME_OVER") observations.finalResumes.push(id);
           else observations.activeResumes++;
+          if (fault === "replaced-notice" && observations.activeResumes === 1) {
+            const old = bound.get(id);
+            if (old) send(old, { type: "ERROR", code: "NOT_SEATED" });
+          }
+          if (
+            cmd.type === "RESUME" &&
+            observations.activeResumes === 2 &&
+            phase === "TURN_ACTIVE" &&
+            fault === "resume-hand"
+          ) {
+            const a = hand(id),
+              b = hand(1);
+            [a[0], b[0]] = [
+              need(b[0], "fixture tile"),
+              need(a[0], "fixture tile"),
+            ];
+          }
+          if (
+            cmd.type === "RESUME" &&
+            phase === "GAME_OVER" &&
+            fault === "final-table"
+          )
+            chips.splice(0, 3, 87, 53, 52);
           bound.set(id, ws);
           ws.data.id = id;
-          send(ws, { type: "SEATED", roomCode, seatId: id, token: token(id) });
+          const echoed =
+            fault === "resume-token" && observations.activeResumes === 2
+              ? "changed-credential"
+              : token(id);
+          send(ws, { type: "SEATED", roomCode, seatId: id, token: echoed });
           broadcast();
           return;
         }
@@ -340,6 +401,7 @@ export function fixture(fault?: Fault) {
               chipChange: need(chips[i], "missing chips") - 64,
             })),
           };
+          if (fault === "chip-total") chips[0] = 89;
           phase = "ROUND_SETTLEMENT";
           broadcast();
           if (round < maxRounds) deal();

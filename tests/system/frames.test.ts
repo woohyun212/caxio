@@ -3,6 +3,7 @@ import type { SeatId } from "../../packages/shared/src/contracts/domain";
 import {
   firstDealState,
   lastPlaySequence,
+  lostResume,
   phaseExamples,
   spectatorExamples,
 } from "../../packages/shared/src/contracts/fixtures";
@@ -73,16 +74,21 @@ test("foreign token rejected even in an otherwise valid frame", () => {
     "foreign seat token",
   );
 });
-test("revision strictly increases and presence preserves the clock", () => {
-  for (const delta of [0, -1])
-    expect(() =>
-      judgeFrame(
-        JSON.stringify({ ...active, revision: active.revision + delta }),
-        0,
-        new Map(),
-        active,
-      ),
-    ).toThrow("revision");
+test("revision replay requires an identical view and presence preserves the clock", () => {
+  const replay = (change: Partial<typeof active>) =>
+    judgeFrame(JSON.stringify({ ...active, ...change }), 0, new Map(), active);
+  expect(() => replay({ revision: active.revision - 1 })).toThrow(
+    "revision decreased",
+  );
+  expect(replay({ serverNow: active.serverNow + 1 })).toBeNull();
+  expect(() =>
+    replay({
+      view: {
+        ...active.view,
+        ownHand: [...need(active.view.ownHand, "fixture hand")].reverse(),
+      },
+    }),
+  ).toThrow("view changed at repeated revision");
   expect(
     judgeFrame(
       JSON.stringify({
@@ -93,7 +99,7 @@ test("revision strictly increases and presence preserves the clock", () => {
       0,
       new Map(),
       active,
-    ).type,
+    )?.type,
   ).toBe("SNAPSHOT");
   const v = active.view;
   requireCheck(v.phase === "TURN_ACTIVE", "fixture phase");
@@ -203,4 +209,108 @@ test("shared revisions agree on public table and final chips are conserved", () 
     ...rest,
   ];
   expect(() => checkFinal({ ...over.view, slots })).toThrow("chip total");
+});
+
+test("a seated connection rejects another SEATED", () => {
+  const reply = lostResume.received;
+  expect(() =>
+    judgeFrame(JSON.stringify(reply), reply.seatId, new Map()),
+  ).toThrow("unexpected SEATED");
+});
+test("final ranking must cover every seat", () => {
+  const v = over.view;
+  requireCheck(v.phase === "GAME_OVER", "fixture phase");
+  expect(() => checkFinal({ ...v, ranking: v.ranking.slice(1) })).toThrow(
+    "ranking coverage",
+  );
+});
+for (const [field, change, cause] of [
+  ["round", { round: 2 }, "inconsistent deal"],
+  ["leader", { currentTurn: 1 }, "inconsistent deal"],
+  ["maximum", { maxNumber: 13 }, "inconsistent deal"],
+  [
+    "missing tile",
+    { ownHand: firstDealState.players[1].hand.slice(1) },
+    "incomplete deck",
+  ],
+] as const)
+  test(`deal rejects ${field}`, () => {
+    const v = start.view;
+    requireCheck(v.phase === "ROUND_START", "fixture phase");
+    const seats = new Map(
+      firstDealState.seatOrder.map((id) => [
+        id,
+        {
+          ...v,
+          ownHand: firstDealState.players[id].hand,
+          ...(id === 1 ? change : {}),
+        },
+      ]),
+    );
+    expect(() => checkDeal(seats)).toThrow(cause);
+  });
+test("action rejects a wrong remaining count or chip change", () => {
+  const v = passed.view;
+  const [slot, ...rest] = v.slots;
+  const self = need(slot, "fixture seat");
+  for (const [change, cause] of [
+    [
+      { remainingTileCount: self.remainingTileCount + 1 },
+      "remaining hand count",
+    ],
+    [{ chips: self.chips + 1 }, "unrelated active turn change"],
+  ] as const) {
+    const slots: PlayerView["slots"] = [{ ...self, ...change }, ...rest];
+    expect(() =>
+      checkAction(before.view, { ...v, slots }, 0, { type: "PASS" }),
+    ).toThrow(cause);
+  }
+});
+test("action rejects a wrong next seat or turn ID", () => {
+  const v = passed.view;
+  requireCheck(
+    v.phase === "TURN_ACTIVE" && before.view.phase === "TURN_ACTIVE",
+    "fixture phase",
+  );
+  for (const change of [
+    { currentTurn: 0 as const },
+    { turnId: before.view.turnId },
+  ])
+    expect(() =>
+      checkAction(before.view, { ...v, ...change }, 0, { type: "PASS" }),
+    ).toThrow("next active turn mismatch");
+});
+test("action phase must follow the remaining hand count", () => {
+  const v = paid.view,
+    following = passed.view;
+  const play = {
+    type: "PLAY",
+    tiles: need(v.lastPlay, "winning play").tiles,
+  } as const;
+  requireCheck(
+    v.phase === "ROUND_SETTLEMENT" && following.phase === "TURN_ACTIVE",
+    "fixture phase",
+  );
+  expect(() =>
+    checkAction(
+      cleared.view,
+      { ...v, phase: "TURN_ACTIVE", turnId: 64, deadline: 10, currentTurn: 1 },
+      0,
+      play,
+    ),
+  ).toThrow("unexpected action phase");
+  expect(() =>
+    checkAction(
+      before.view,
+      {
+        ...following,
+        phase: "ROUND_SETTLEMENT",
+        turnId: null,
+        deadline: null,
+        currentTurn: null,
+      },
+      0,
+      { type: "PASS" },
+    ),
+  ).toThrow("unexpected action phase");
 });

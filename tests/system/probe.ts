@@ -8,7 +8,7 @@ import {
   judgeMissing,
   loadAssets,
 } from "./http";
-import { ProbeFailure, requireCheck } from "./judges";
+import { errorName, ProbeFailure, requireCheck } from "./judges";
 
 export { judgeAsset, judgeHtml, judgeMissing, loadAssets } from "./http";
 export {
@@ -53,8 +53,8 @@ export async function runProbe(
       e instanceof ProbeFailure
         ? e.message
         : performance.now() >= end
-          ? "total budget exceeded"
-          : "request failed";
+          ? `total budget exceeded (${errorName(e)})`
+          : `request failed (${errorName(e)})`;
     bad++;
     log(`${id} FAIL ${reason}`);
   }

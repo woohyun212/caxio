@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { handOrder } from "../../apps/web/src/visual/layout";
 import { firstDealState } from "../../packages/shared/src/contracts/fixtures";
 import { assets, type Fault, fixture } from "./fixture";
+import { Game } from "./game";
 import { runProbe } from "./probe";
 
 async function run(fault?: Fault) {
@@ -61,6 +62,18 @@ test("three real sockets, seven rejections, lost and final resumes", async () =>
     expect(output).toContain(`${id} PASS`);
 });
 for (const [fault, reason] of [
+  ["wrong-error", "reject.DUPLICATE_TILE FAIL expected ERROR(DUPLICATE_TILE)"],
+  ["extra-error", "unexpected unrequested frame"],
+  ["resume-token", "resume.active FAIL resume credential mismatch"],
+  ["resume-hand", "resume.active FAIL resume changed active turn or hand"],
+  [
+    "accepted-token",
+    "reject.RESUME_DENIED FAIL expected ERROR, received SEATED",
+  ],
+  ["split-table", "public table mismatch at shared revision"],
+  ["wrong-leader", "leader does not hold cloud 3"],
+  ["chip-total", "game.final FAIL chip total"],
+  ["final-table", "resume.final FAIL final resume public table mismatch"],
   ["asset", "atlas-wide.png FAIL"],
   ["leak", "foreign seat token"],
   ["missing", "http.missing FAIL"],
@@ -76,6 +89,8 @@ for (const [fault, reason] of [
     const { code, output } = await run(fault);
     expect(output).toContain(reason);
     expect(code).toBe(1);
+    if (fault === "unready")
+      expect(output).toContain("http.health FAIL health status 503");
     expect(output).toContain("http.health ");
     expect(output).toContain("asset/fonts/ofl.md ");
   });
@@ -133,6 +148,9 @@ test("refused connection exhausts readiness and still reports HTTP and WebSocket
     log: (line) => lines.push(line),
   });
   expect(code).toBe(1);
+  expect(lines.find((l) => l.startsWith("http.health FAIL"))).toMatch(
+    /request failed \([A-Za-z]+\)/,
+  );
   for (const id of [
     "http.ready",
     "http.html",
@@ -142,4 +160,21 @@ test("refused connection exhausts readiness and still reports HTTP and WebSocket
     "ws.open",
   ])
     expect(lines.some((l) => l.startsWith(`${id} FAIL`))).toBe(true);
+});
+
+for (const variant of ["replay", "replaced-notice"] as const)
+  test(`tolerate ${variant}`, async () => {
+    const { code, output } = await run(variant);
+    expect(output).toContain("summary PASS");
+    expect(code).toBe(0);
+  });
+test("socket failures report exception names without messages", () => {
+  const game = new Game(
+    "https://fixture.invalid",
+    100,
+    performance.now() + 500,
+    () => {},
+  );
+  game.fail(new RangeError("protected-credential-alpha"));
+  expect(game.failure?.message).toBe("socket failure (RangeError)");
 });

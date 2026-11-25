@@ -16,6 +16,9 @@ export function requireCheck(ok: unknown, reason: string): asserts ok {
 }
 // Only locally authored diagnostics may reach the CLI.
 export class ProbeFailure extends Error {}
+export function errorName(error: unknown) {
+  return error instanceof Error ? error.name : "UnknownError";
+}
 export function need<T>(value: T | null | undefined, reason: string): T {
   requireCheck(value != null, reason);
   return value;
@@ -71,11 +74,16 @@ export function judgeFrame(
     "invalid server frame or recipient",
   );
   requireCheck(message.type !== "SEATED" || seat === null, "unexpected SEATED");
-  if (message.type === "SNAPSHOT" && previous)
-    requireCheck(
-      message.revision > previous.revision,
-      "revision did not increase",
-    );
+  if (message.type === "SNAPSHOT" && previous) {
+    requireCheck(message.revision >= previous.revision, "revision decreased");
+    if (message.revision === previous.revision) {
+      requireCheck(
+        equal(message.view, previous.view),
+        "view changed at repeated revision",
+      );
+      return null;
+    }
+  }
   return message;
 }
 export function checkPublic(

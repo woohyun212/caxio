@@ -18,6 +18,7 @@ import {
   checkDeal,
   checkFinal,
   checkPublic,
+  errorName,
   isPresence,
   judgeFrame,
   need,
@@ -58,6 +59,7 @@ class Client {
           room.tokens,
           this.previous,
         );
+        if (!message) return;
         if (message.type === "SEATED") {
           if (!room.tokens.has(message.seatId)) {
             requireCheck(
@@ -170,7 +172,7 @@ export class Game {
     this.failure ??=
       error instanceof ProbeFailure
         ? error
-        : new ProbeFailure("socket failure");
+        : new ProbeFailure(`socket failure (${errorName(error)})`);
     for (const c of this.clients) c.wake?.();
   }
   check() {
@@ -271,7 +273,7 @@ export class Game {
     } as const;
     const lost = await this.open();
     this.idle();
-    c.replacing = true;
+    c.ignored = true;
     lost.send(cmd);
     lost.close();
     const replacement = await this.open();
@@ -282,7 +284,6 @@ export class Game {
     );
     this.idle();
     this.live[this.live.indexOf(c)] = replacement;
-    c.ignored = true;
     const second = need(
       handOrder(need(view.ownHand, "missing resumed hand"), view.maxNumber)[1],
       "missing second tile",
