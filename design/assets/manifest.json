@@ -1,0 +1,118 @@
+{
+  "files": [
+    {
+      "url": "/art/atlas-wide.png",
+      "path": "apps/web/public/art/atlas-wide.png",
+      "width": 420,
+      "height": 186,
+      "bytes": 1173,
+      "sha256": "a2cda4a3e38955aab92c70151d7322485b0e606dcff725d5653432001c486c92",
+      "allowedColors": [
+        "#152B26",
+        "#385747",
+        "#829769",
+        "#DCE7B1",
+        "#2A78B8",
+        "#57307A",
+        "#B26E00",
+        "#A12B1C"
+      ],
+      "alpha": [0, 255]
+    },
+    {
+      "url": "/art/atlas-compact.png",
+      "path": "apps/web/public/art/atlas-compact.png",
+      "width": 360,
+      "height": 160,
+      "bytes": 955,
+      "sha256": "b7aa11187f414af54cd725a9f84c6f1961ac15a4abf2125f139bf93d4f9a0833",
+      "allowedColors": [
+        "#152B26",
+        "#385747",
+        "#DCE7B1",
+        "#2A78B8",
+        "#57307A",
+        "#B26E00",
+        "#A12B1C"
+      ],
+      "alpha": [0, 255]
+    }
+  ],
+  "cells": [
+    {
+      "id": "digits-0",
+      "foreground": 96,
+      "overrideCount": 0
+    },
+    {
+      "id": "digits-1",
+      "foreground": 75,
+      "overrideCount": 0
+    },
+    {
+      "id": "digits-2",
+      "foreground": 93,
+      "overrideCount": 0
+    },
+    {
+      "id": "digits-3",
+      "foreground": 87,
+      "overrideCount": 0
+    },
+    {
+      "id": "digits-4",
+      "foreground": 72,
+      "overrideCount": 0
+    },
+    {
+      "id": "digits-5",
+      "foreground": 93,
+      "overrideCount": 0
+    },
+    {
+      "id": "digits-6",
+      "foreground": 99,
+      "overrideCount": 0
+    },
+    {
+      "id": "digits-7",
+      "foreground": 57,
+      "overrideCount": 0
+    },
+    {
+      "id": "digits-8",
+      "foreground": 105,
+      "overrideCount": 0
+    },
+    {
+      "id": "digits-9",
+      "foreground": 99,
+      "overrideCount": 0
+    },
+    {
+      "id": "suits-0",
+      "foreground": 154,
+      "overrideCount": 0
+    },
+    {
+      "id": "suits-1",
+      "foreground": 103,
+      "overrideCount": 0
+    },
+    {
+      "id": "suits-2",
+      "foreground": 113,
+      "overrideCount": 0
+    },
+    {
+      "id": "suits-3",
+      "foreground": 70,
+      "overrideCount": 0
+    },
+    {
+      "id": "back-0",
+      "foreground": 68,
+      "overrideCount": 0
+    }
+  ]
+}
