@@ -38,7 +38,7 @@ function buildSheet(stage: TableStage) {
       )
     )
       p += 4;
-    if (p === data.length) throw Error("Atlas lacks swatch " + i);
+    if (p === data.length) throw Error(`Atlas lacks swatch ${i}`);
     stage.plane(scene, patch(i, 0), 1, stage.coverage(0, i));
     stage.plane(scene, patch(i, 24), 1, stage.atlas, {
       x: (p / 4) % image.width,
@@ -138,7 +138,7 @@ async function capture() {
     ["logical", logical],
     ["copy", screen],
   ] as const) {
-    const res = await fetch("/capture/" + name, { method: "POST", body: buf });
+    const res = await fetch(`/capture/${name}`, { method: "POST", body: buf });
     if (!res.ok) throw Error("Capture storage failed");
   }
   return {

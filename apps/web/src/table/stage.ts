@@ -23,7 +23,7 @@ const { width: W, sceneHeight: H } = frame;
 const deck = stage.stadium;
 const rim = deck.inkWidth + deck.paperWidth + deck.sageWidth;
 const tones = Object.values(palette).map(
-  (rgb) => "vec3(" + rgb.join(",") + ")/255.",
+  (rgb) => `vec3(${rgb.join(",")})/255.`,
 );
 const coverageFragment = `
 const vec3 tones[8]=vec3[8](${tones.join(",")});

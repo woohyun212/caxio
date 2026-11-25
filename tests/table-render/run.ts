@@ -93,7 +93,7 @@ async function until<T>(read: () => Promise<T | undefined>, label: string) {
     if (value !== undefined) return value;
     await Bun.sleep(40);
   }
-  throw Error("Timed out waiting for " + label);
+  throw Error(`Timed out waiting for ${label}`);
 }
 let closing: Promise<void> | undefined;
 function close() {
@@ -135,22 +135,22 @@ try {
       "--hide-scrollbars",
       ...(process.platform === "darwin" ? ["--use-angle=metal"] : []),
       "--remote-debugging-port=0",
-      "--user-data-dir=" + activeProfile,
+      `--user-data-dir=${activeProfile}`,
       "about:blank",
     ],
     { stdout: "ignore", stderr: Bun.file(join(out, "chrome.log")) },
   );
   const port = await until(async () => {
-    if (proc?.exitCode != null) throw Error("Chrome exited " + proc.exitCode);
+    if (proc?.exitCode != null) throw Error(`Chrome exited ${proc.exitCode}`);
     const file = Bun.file(join(activeProfile, "DevToolsActivePort"));
     if (await file.exists())
       return (await file.text()).split("\n")[0] || undefined;
     return undefined;
   }, "Chrome debug port");
-  const endpoint = "http://127.0.0.1:" + port;
-  const version = (await (await fetch(endpoint + "/json/version")).json())
+  const endpoint = `http://127.0.0.1:${port}`;
+  const version = (await (await fetch(`${endpoint}/json/version`)).json())
     .Browser as string;
-  const tabs = (await (await fetch(endpoint + "/json/list")).json()) as {
+  const tabs = (await (await fetch(`${endpoint}/json/list`)).json()) as {
     webSocketDebuggerUrl: string;
     type: string;
   }[];
@@ -185,7 +185,7 @@ try {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(seq);
-        reject(Error("Chrome timeout: " + method));
+        reject(Error(`Chrome timeout: ${method}`));
       }, 30000);
       pending.set(seq, {
         ok: (v) => {
@@ -234,7 +234,7 @@ try {
   }, "first display");
   async function settle(k: number, sheet: boolean, selected = false) {
     const count = await evaluate<number>("probe.status().frames");
-    await evaluate("probe.show(" + [k, sheet, selected].join(",") + ")");
+    await evaluate(`probe.show(${[k, sheet, selected].join(",")})`);
     await until(async () => {
       const s = await evaluate<{ frames: number; width: number; k: number }>(
         "probe.status()",
@@ -273,12 +273,12 @@ try {
     });
     const png = Buffer.from(snap.data, "base64"),
       physical = decode(png);
-    await Bun.write(join(out, name + "-logical.png"), encode(logical));
-    await Bun.write(join(out, name + "-copy.png"), encode(copy));
-    await Bun.write(join(out, name + "-physical.png"), png);
+    await Bun.write(join(out, `${name}-logical.png`), encode(logical));
+    await Bun.write(join(out, `${name}-copy.png`), encode(copy));
+    await Bun.write(join(out, `${name}-physical.png`), png);
     requireCheck(
       meta.calls <= 150 && !meta.dither,
-      name + " draw calls/DITHER",
+      `${name} draw calls/DITHER`,
     );
     return { logical, copy, physical, meta };
   }
@@ -302,7 +302,7 @@ try {
         liveDpr = !!transform;
       }
       await settle(k, true);
-      const name = "sheet-k" + k + "-dpr" + dpr,
+      const name = `sheet-k${k}-dpr${dpr}`,
         shot = await capture(name, k);
       const logical = compare(reference, shot.logical, 1),
         copy = compare(shot.logical, shot.copy, k),
@@ -313,10 +313,10 @@ try {
       requireCheck(
         [logical, copy, physical].every((v) => !v.difference && !v.mixed) &&
           shot.meta.transform === expected,
-        name + " pixels/transform",
+        `${name} pixels/transform`,
       );
       await settle(k, false);
-      const specimen = await capture("load-k" + k + "-dpr" + dpr, k);
+      const specimen = await capture(`load-k${k}-dpr${dpr}`, k);
       const masks = judgeLoad(specimen.logical, atlas),
         loadCopy = compare(specimen.logical, specimen.copy, k),
         loadPhysical = compare(specimen.logical, specimen.physical, k * dpr);
@@ -324,7 +324,7 @@ try {
         Object.entries(masks).every(
           ([key, m]) => key === "underline" || (m.pixels > 0 && !m.difference),
         ) && [loadCopy, loadPhysical].every((v) => !v.difference && !v.mixed),
-        "load " + k + "/" + dpr,
+        `load ${k}/${dpr}`,
       );
       rows.push({
         k,
@@ -381,7 +381,7 @@ try {
   ] as const)
     for (const [key, m] of Object.entries(masks))
       if (label === "selected" || key !== "underline")
-        requireCheck(m.pixels > 0 && !m.difference, label + " " + key);
+        requireCheck(m.pixels > 0 && !m.difference, `${label} ${key}`);
   await settle(3, false);
   const timing = [];
   for (let i = 0; i < 3; i++) {
@@ -424,8 +424,8 @@ try {
   for (const mode of ["loss", "preflight", "factory", "atlas"]) {
     rejectAtlas = mode === "atlas";
     if (mode === "atlas")
-      await call("Page.navigate", { url: server.url.href + "?missing-atlas" });
-    else await evaluate("probe.fail(" + JSON.stringify(mode) + ")");
+      await call("Page.navigate", { url: `${server.url.href}?missing-atlas` });
+    else await evaluate(`probe.fail(${JSON.stringify(mode)})`);
     const result = await until(async () => {
       const s = await evaluate<
         | {
@@ -436,8 +436,8 @@ try {
         | undefined
       >("window.probe?.status()");
       return s && !s.canvas && s.failure ? s : undefined;
-    }, "fallback after " + mode);
-    requireCheck(result.ready === 0 && result.failure === 1, "failure " + mode);
+    }, `fallback after ${mode}`);
+    requireCheck(result.ready === 0 && result.failure === 1, `failure ${mode}`);
     failureChecks.push({ mode, ...result });
   }
   const hashes: Record<string, string> = {};

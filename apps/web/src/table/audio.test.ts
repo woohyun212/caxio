@@ -113,7 +113,7 @@ test("an unavailable context is attempted once", () => {
 });
 test("standalone browser audio bundle includes no graphics imports", async () => {
   const result = await Bun.build({
-    entrypoints: [import.meta.dir + "/audio.ts"],
+    entrypoints: [`${import.meta.dir}/audio.ts`],
     target: "browser",
     metafile: true,
   });

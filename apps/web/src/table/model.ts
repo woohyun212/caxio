@@ -49,7 +49,7 @@ export function model(
     for (const [i, t] of handOrder(tiles, view.maxNumber).entries()) {
       const slot = slots[i];
       if (!slot) continue;
-      const key = t.number + "/" + t.suit;
+      const key = `${t.number}/${t.suit}`;
       const old =
         previous?.round === view.round
           ? previous.faces.find((f) => f.key === key)

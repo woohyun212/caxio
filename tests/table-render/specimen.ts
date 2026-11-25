@@ -28,7 +28,7 @@ export async function generate(dir: string) {
     for (let x = 0; x < backRect.w; x++)
       data.set([...palette.sage, 255], ((backRect.y + y) * width + x) * 4);
   await mkdir(dir, { recursive: true });
-  await Bun.write(dir + "/atlas-wide.png", encode({ width, height, data }));
+  await Bun.write(`${dir}/atlas-wide.png`, encode({ width, height, data }));
 }
 if (import.meta.main)
   await generate(Bun.argv[2] ?? "tests/table-render/specimen");

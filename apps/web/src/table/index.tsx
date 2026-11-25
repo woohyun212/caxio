@@ -188,7 +188,7 @@ function Table({
       media?.removeEventListener("change", update);
       canvas.style.imageRendering = "pixelated";
       canvas.style.transform = phaseTransform(props.k, window.devicePixelRatio);
-      media = matchMedia("(resolution: " + window.devicePixelRatio + "dppx)");
+      media = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
       media.addEventListener("change", update);
     };
     update();
