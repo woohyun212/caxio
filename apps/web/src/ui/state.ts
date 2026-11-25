@@ -140,10 +140,16 @@ export function dealText(view: PlayerView, compact = false) {
     return `R${view.round} 1~${view.maxNumber} ${view.slots[view.currentTurn]?.remainingTileCount}장씩 선 ${seatLabel(view.currentTurn)}(구름3)`;
   return `R${view.round} · 숫자 1~${view.maxNumber} · ${view.slots[view.currentTurn]?.remainingTileCount}장씩 · 선 ${seatLabel(view.currentTurn)}(구름 3)`;
 }
+function timeoutNotice(type: "PLAY" | "PASS") {
+  return type === "PLAY"
+    ? "시간 초과로 최저 싱글을 냈어요"
+    : "시간 초과로 패스했어요";
+}
 export function nextNotice(
   before: ClientModel | null,
   model: ClientModel,
   notice: string,
+  seenTurn?: number | null,
 ) {
   const v = model.view,
     prev = before?.view;
@@ -152,16 +158,21 @@ export function nextNotice(
     !prev ||
     before?.connection !== "CONNECTED" ||
     before.credential?.token !== model.credential?.token
-  )
+  ) {
+    const action = v.lastAction;
+    if (
+      action?.automatic &&
+      seenTurn !== undefined &&
+      seenTurn !== action.turnId
+    )
+      return timeoutNotice(action.type);
     return v.phase === "ROUND_START" && before?.connection !== "RESTORING"
       ? dealText(v)
       : "";
+  }
   const a = v.lastAction;
   if (a && a.turnId !== prev.lastAction?.turnId) {
-    if (a.automatic)
-      return a.type === "PLAY"
-        ? "시간 초과로 최저 싱글을 냈어요"
-        : "시간 초과로 패스했어요";
+    if (a.automatic) return timeoutNotice(a.type);
     if (a.type === "PASS")
       return v.tableHand
         ? "패스"

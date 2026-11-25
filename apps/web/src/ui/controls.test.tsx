@@ -1266,3 +1266,27 @@ test("compact deals keep the full sentence as the accessible name of the shorter
     expect(render(props(view))).toContain(`id="gc-live-text">${full}</span>`);
   }
 });
+
+test("a returned seat announces only an unseen automatic action from this document", () => {
+  for (const type of ["PASS", "PLAY"] as const) {
+    const lastAction = { type, turnId: 7, seatId: 0, automatic: true } as const;
+    const m = props({ ...follow, lastAction }).model;
+    const expected =
+      type === "PLAY"
+        ? "시간 초과로 최저 싱글을 냈어요"
+        : "시간 초과로 패스했어요";
+    for (const seen of [null, 6])
+      expect(nextNotice(null, m, "", seen)).toBe(expected);
+    expect(nextNotice(null, m, "", 7)).toBe("");
+    expect(nextNotice(null, m, "")).toBe("");
+    expect(
+      nextNotice(
+        null,
+        props({ ...follow, lastAction: { ...lastAction, automatic: false } })
+          .model,
+        "",
+        6,
+      ),
+    ).toBe("");
+  }
+});

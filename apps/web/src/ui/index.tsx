@@ -35,10 +35,12 @@ function Board({
   props,
   view,
   mode,
+  seenTurn,
 }: {
   props: GameControlsProps;
   view: GameView;
   mode: Mode;
+  seenTurn: number | null | undefined;
 }) {
   const { model, layout, preview } = props;
   const wide = mode === "wide",
@@ -51,14 +53,14 @@ function Board({
     null,
   );
   const [old, setOld] = useState(model),
-    [notice, setNotice] = useState(() => nextNotice(null, model, ""));
+    [notice, setNotice] = useState(() => nextNotice(null, model, "", seenTurn));
   const [shown, setShown] = useState(() =>
     nextPanel(null, view, { kind: null, page: 0 }),
   );
   const { kind: panel, page } = shown;
   if (old !== model) {
     setOld(model);
-    setNotice(nextNotice(old, model, notice));
+    setNotice(nextNotice(old, model, notice, seenTurn));
     setShown(nextPanel(old.view, view, shown));
   }
   const focusPanel = useRef(false),
@@ -415,6 +417,14 @@ const colors = Object.fromEntries(
 export const GameControls: GameControlsComponent<ReactElement> = (props) => {
   const { view, errorCode } = props.model,
     wide = props.k >= frame.wideMinScale;
+  // A cleared view unmounts the board; keep only the committed public action ID for this seat.
+  const memory = useRef<{ token: string; turn: number | null } | null>(null);
+  const token = props.model.credential?.token;
+  useLayoutEffect(() => {
+    if (!token || memory.current?.token !== token) memory.current = null;
+    if (token && view && props.model.connection === "CONNECTED")
+      memory.current = { token, turn: view.lastAction?.turnId ?? null };
+  }, [token, view, props.model.connection]);
   const style = {
     ...colors,
     "--gc-unit": wide ? "1px" : `${tile.compactScale}px`,
@@ -443,7 +453,10 @@ export const GameControls: GameControlsComponent<ReactElement> = (props) => {
         <Lobby {...props} view={view} message={message} />
       ) : (
         <Board
-          key={props.model.credential?.token}
+          key={token}
+          seenTurn={
+            memory.current?.token === token ? memory.current?.turn : undefined
+          }
           props={props}
           mode={wide ? "wide" : "compact"}
           view={view}
