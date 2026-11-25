@@ -14,10 +14,13 @@ import {
 import { type Occupant, project, type Room, ready } from "./view";
 
 const seats: readonly SeatId[] = [0, 1, 2, 3, 4];
+const MAX_LIVE_ROOMS = 1_000;
+const MAX_LOOKUP_MISSES = 5;
 export const createRoomService: CreateRoomService = (deps) => {
   const rooms = new Map<string, Room>();
   const bindings = new Map<RoomConnection, { room: Room; seat: Occupant }>();
   const replaced = new WeakSet<RoomConnection>();
+  const lookupMisses = new WeakMap<RoomConnection, number>();
   const limit = deps.turnLimitMs ?? DEFAULT_TURN_LIMIT_MS;
 
   // Each arm owns its callback. Even explicitly replaying a cancelled or early callback is harmless.
@@ -139,14 +142,23 @@ export const createRoomService: CreateRoomService = (deps) => {
     receive(connection, frame) {
       const now = deps.now();
       const command = decodeCommand(frame);
-      const error = (code: ErrorCode) =>
+      const error = (code: ErrorCode) => {
+        if (code === "ROOM_NOT_FOUND" || code === "RESUME_DENIED")
+          lookupMisses.set(connection, (lookupMisses.get(connection) ?? 0) + 1);
         deps.send(connection, { type: "ERROR", code });
+      };
       if (command === "INVALID_MESSAGE") return error(command);
+      if (
+        (command.type === "JOIN_ROOM" || command.type === "RESUME") &&
+        (lookupMisses.get(connection) ?? 0) >= MAX_LOOKUP_MISSES
+      )
+        return error("INVALID_PHASE");
       if (replaced.has(connection)) return error("NOT_SEATED");
       const bound = bindings.get(connection);
       switch (command.type) {
         case "CREATE_ROOM": {
           if (bound) return error("INVALID_PHASE");
+          if (rooms.size >= MAX_LIVE_ROOMS) return error("ROOM_FULL");
           let code = deps.newRoomCode();
           while (!isRoomCode(code) || rooms.has(code))
             code = deps.newRoomCode();
