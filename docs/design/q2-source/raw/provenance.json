@@ -1,0 +1,29 @@
+[
+  {
+    "id": "digits",
+    "path": "digits.png",
+    "size": [1774, 887],
+    "tool": "Codex image_gen.imagegen",
+    "date": "2026-11-26 KST",
+    "candidate": "1/1",
+    "prompt": "Sprite sheet of ten black pixel-art numerals 0 1 2 3 4 5 6 7 8 9. Exactly one of each in that order in TWO ROWS by FIVE equally spaced columns (0 through 4 above, 5 through 9 below), on a uniform pure white key background. No text or any other marks or grid. Orthogonal chunky retro digital block font, square flat terminals, strictly rectangular thick strokes aligned horizontally and vertically, no diagonal lines, no chamfers, no rounded corners and no gaps at joints. Aim for a 9 by 13 logical pixel glyph, all stems and bars 3 logical pixels thick. Digital 0 a hollow rectangle, 1 a thick pillar with base and left flag, seven has horizontal top and vertical right stem, 4 open top. All digits equally tall and optically consistent, center each glyph in its own equal cell. Flat white background and solid black silhouettes only."
+  },
+  {
+    "id": "suits",
+    "path": "suits.png",
+    "size": [1341, 1173],
+    "tool": "Codex image_gen.imagegen",
+    "date": "2026-11-26 KST",
+    "candidate": "1/1",
+    "prompt": "A production sprite sheet for a handheld pixel tile game. FOUR solid black silhouette icons on pure white key background, two rows by two columns of equally sized cells, each centered. Top left cloud with three rounded step lobes and absolutely flat base. Top right solid upright five-pointed star. Lower left thick crescent moon opening RIGHT. Lower right SUN with a solid central circular disk and exactly EIGHT separate chunky block rays around it, at compass and diagonal bearings, with generous WHITE SPACE separating every ray from the disk and from other rays, gap around disk at least a ray width. Icons each fill roughly 2/3 of their equally sized quadrant. Extremely simple low-res pixel art hard steps, optimized for 16x14 pixel masks. No borders, grid, labels or additional marks, no gray or shadows."
+  },
+  {
+    "id": "back",
+    "path": "back.png",
+    "size": [1254, 1254],
+    "tool": "Codex image_gen.imagegen",
+    "date": "2026-11-26 KST",
+    "candidate": "1/1",
+    "prompt": "Single tiny emblem centered large on a pure white key background, square sprite artwork. A single black stepped interlocked double-C abstract monogram, two nested angular C shapes offset diagonally, strong square pixel staircase corners, opening towards the right. Compact iconic bold black pixellated logo designed for just 12 by 12 logical pixels, black shapes two pixels thick. No framing, no checker pattern, no typography, numbers or surrounding elements. Only pure solid black and white."
+  }
+]

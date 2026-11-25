@@ -1,0 +1,165 @@
+{
+  "palette": [
+    "#152B26",
+    "#385747",
+    "#829769",
+    "#DCE7B1",
+    "#2A78B8",
+    "#57307A",
+    "#B26E00",
+    "#A12B1C"
+  ],
+  "assets": {
+    "atlas-wide.png": {
+      "width": 420,
+      "height": 186,
+      "layout": "15 columns (1..15), 4 rows (cloud, star, moon, sun); cell 28x40; back (0,160,20,26)",
+      "allowed": [
+        "#152B26",
+        "#385747",
+        "#829769",
+        "#DCE7B1",
+        "#2A78B8",
+        "#57307A",
+        "#B26E00",
+        "#A12B1C"
+      ],
+      "alpha": [0, 255],
+      "bytes": 1173
+    },
+    "atlas-compact.png": {
+      "width": 360,
+      "height": 160,
+      "layout": "15 columns (1..15), 4 rows (cloud, star, moon, sun); cell 24x40",
+      "allowed": [
+        "#152B26",
+        "#385747",
+        "#DCE7B1",
+        "#2A78B8",
+        "#57307A",
+        "#B26E00",
+        "#A12B1C"
+      ],
+      "alpha": [0, 255],
+      "bytes": 955
+    },
+    "bayer-2.png": {
+      "width": 4,
+      "height": 4,
+      "layout": "2/16 pine, top-left origin",
+      "allowed": ["#152B26", "#385747"],
+      "alpha": [255],
+      "bytes": 128
+    },
+    "bayer-5.png": {
+      "width": 4,
+      "height": 4,
+      "layout": "5/16 pine, top-left origin",
+      "allowed": ["#152B26", "#385747"],
+      "alpha": [255],
+      "bytes": 132
+    },
+    "bayer-8.png": {
+      "width": 4,
+      "height": 4,
+      "layout": "8/16 pine, top-left origin",
+      "allowed": ["#152B26", "#385747"],
+      "alpha": [255],
+      "bytes": 129
+    }
+  },
+  "cells": {
+    "digits-0": {
+      "foreground": 96,
+      "overrides": 0,
+      "minRuns": [3, 3]
+    },
+    "digits-1": {
+      "foreground": 75,
+      "overrides": 0,
+      "minRuns": [4, 2]
+    },
+    "digits-2": {
+      "foreground": 93,
+      "overrides": 0,
+      "minRuns": [3, 3]
+    },
+    "digits-3": {
+      "foreground": 87,
+      "overrides": 0,
+      "minRuns": [3, 3]
+    },
+    "digits-4": {
+      "foreground": 72,
+      "overrides": 0,
+      "minRuns": [3, 3]
+    },
+    "digits-5": {
+      "foreground": 93,
+      "overrides": 0,
+      "minRuns": [3, 3]
+    },
+    "digits-6": {
+      "foreground": 99,
+      "overrides": 0,
+      "minRuns": [3, 3]
+    },
+    "digits-7": {
+      "foreground": 57,
+      "overrides": 0,
+      "minRuns": [3, 3]
+    },
+    "digits-8": {
+      "foreground": 105,
+      "overrides": 0,
+      "minRuns": [3, 3]
+    },
+    "digits-9": {
+      "foreground": 99,
+      "overrides": 0,
+      "minRuns": [3, 3]
+    },
+    "suits-0": {
+      "foreground": 154,
+      "overrides": 0
+    },
+    "suits-1": {
+      "foreground": 103,
+      "overrides": 0
+    },
+    "suits-2": {
+      "foreground": 113,
+      "overrides": 0
+    },
+    "suits-3": {
+      "foreground": 70,
+      "overrides": 0
+    },
+    "back-0": {
+      "foreground": 68,
+      "overrides": 0
+    }
+  },
+  "contrastAndColorVision": {
+    "hud": [11.461559113747937, 6.142566647780271, 4.68171117730299],
+    "suitContrast": [
+      3.597884841117207, 7.637708914338343, 3.144095933611892,
+      5.5975878849161465
+    ],
+    "cvd": [
+      {
+        "minimum": 23.912462834249435,
+        "starSun": 66.49177185821182
+      },
+      {
+        "minimum": 20.166515702620206,
+        "starSun": 76.8942694297097
+      },
+      {
+        "minimum": 28.636891665314053,
+        "starSun": 64.08891734606456
+      }
+    ]
+  },
+  "sunComponents": [36, 5, 5, 4, 4, 4, 4, 4, 4]
+}
