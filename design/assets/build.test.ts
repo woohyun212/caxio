@@ -127,6 +127,18 @@ test("originals preserve Q2 provenance, input hashes and shipped font identities
   }
 });
 
+test("product input record matches the converter, tests and provenance", () => {
+  const paths = ["build.ts", "build.test.ts", "raw/provenance.json"];
+  const expected = paths.map(
+    (path) => `${sha256(readFileSync(join(import.meta.dir, path)))}  ${path}`,
+  );
+  const record = readFileSync(
+    join(import.meta.dir, "product-inputs.sha256"),
+    "utf8",
+  );
+  expect(record.trimEnd().split("\n").sort()).toEqual(expected.sort());
+});
+
 test("in-memory regeneration matches each committed output and its published Q2 checksum", () => {
   assert.deepEqual(fresh.manifest, manifest);
   expect(fresh.record).toEqual(record);
@@ -374,13 +386,14 @@ test("raw and edited masks must both pass geometry checks", () => {
   );
 });
 
-// Independently prefiltered two-row RGB fixture, including left/up/corner Paeth cases.
+// Computed offline by subtracting each PNG predictor from the raw byte modulo 256.
+// Row 2, pixel 2 green uses floor((241 + 40) / 2) = 140, then (126 + 140) % 256 = 10.
 const samples = [
-  "0064e63c5028a0824620000af0465a0a8c8c1e46",
-  "0164e63cec4264321e80010af046501a463214ba",
-  "0264e63c5028a082462002a60a0a0ae2ec0ad826",
-  "0364e63c1eb5825a32d003d87d282d7e191ef6f0",
-  "0464e63cec4264321e8004a60a0a50e2ec0af626",
+  "0064e63c5028a0824620000af1465a0a8c8c1e46",
+  "0164e63cec4264321e80010af1465019463214ba",
+  "0264e63c5028a082462002a60b0a0ae2ec0ad826",
+  "0364e63c1eb5825a32d003d87e282d7e191ef6f0",
+  "0464e63cec4264321e8004a60b0a50e2ec0af626",
 ] as const;
 function fixture(rows: Buffer, format = [8, 2, 0, 0, 0]) {
   function chunk(tag: string, data: Buffer) {
@@ -413,7 +426,7 @@ for (const [filter, sample] of samples.entries())
     () => {
       const { w, h, rgb } = decodeRGB(fixture(Buffer.from(sample, "hex")));
       expect([w, h]).toEqual([3, 2]);
-      expect(rgb.toString("hex")).toBe("64e63c5028a08246200af0465a0a8c8c1e46");
+      expect(rgb.toString("hex")).toBe("64e63c5028a08246200af1465a0a8c8c1e46");
     },
   );
 test("RGB decoder rejects bad signature, ancillary CRC, format, filter and row length", () => {
