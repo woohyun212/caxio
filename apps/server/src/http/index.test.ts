@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import { connect } from "node:net";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -22,7 +23,6 @@ let closed: RoomConnection[];
 beforeEach(async () => {
   parent = await mkdtemp(join(tmpdir(), "caxio-http-"));
   root = join(parent, "web");
-  await mkdir(root);
   received = [];
   closed = [];
   server = startHttpServer(
@@ -99,6 +99,7 @@ function rawHeaders(path: string) {
 }
 
 test("one assigned port serves the index, typed assets, health and a WebSocket reply", async () => {
+  await mkdir(root);
   expect(new URL(server.url).protocol).toBe("http:");
   expect(Number(new URL(server.url).port)).toBeGreaterThan(0);
   await writeFile(join(root, "healthz"), "shadow");
@@ -129,6 +130,7 @@ test("one assigned port serves the index, typed assets, health and a WebSocket r
 });
 
 test("missing files, directories, malformed paths and outside-root targets return 404", async () => {
+  await mkdir(root);
   await writeFile(join(root, "index.html"), "no fallback");
   await writeFile(join(root, "%zz"), "invalid escape");
   await writeFile(join(parent, "outside"), "private marker");
@@ -156,16 +158,49 @@ test("missing files, directories, malformed paths and outside-root targets retur
   expect((await get("/", { method: "POST" })).status).toBe(404);
 });
 
-test("startup requires an existing static root", () => {
-  expect(() =>
-    startHttpServer({ receive() {}, close() {} }, join(parent, "missing"), 0),
-  ).toThrow();
+test("health and WebSockets work before the static root appears, then new files are served", async () => {
+  const health = await get(HEALTH_PATH);
+  expect(health.status).toBe(200);
+  expect(await health.text()).toBe("ok");
+  const { ws, messages } = await openSocket();
+  ws.send("before build");
+  await until(() => messages.length > 0);
+  expect(messages).toEqual([JSON.stringify(reply)]);
+  expect((await get("/")).status).toBe(404);
+  expect((await get("/client.js")).status).toBe(404);
+  await mkdir(root);
+  await writeFile(join(root, "index.html"), "built client");
+  await writeFile(join(root, "client.js"), "built script");
+  for (const [path, body] of Object.entries({
+    "/": "built client",
+    "/client.js": "built script",
+  })) {
+    const response = await get(path);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(body);
+  }
+});
+
+test("fetching a Unix socket returns a bare 404", async () => {
+  await mkdir(root);
+  const socket = createServer();
+  socket.listen(join(root, "sock"));
+  await once(socket, "listening");
+  try {
+    const response = await get("/sock");
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("");
+  } finally {
+    const closed = once(socket, "close");
+    socket.close();
+    await closed;
+  }
 });
 
 test.each(["art/atlas.png", "fonts/game.woff2"])(
   "%s revalidates the SHA-256 of current bytes only",
   async (path) => {
-    await mkdir(dirname(join(root, path)));
+    await mkdir(dirname(join(root, path)), { recursive: true });
     const cache = "public, max-age=0, must-revalidate";
     let previous = '"outdated"';
     for (const bytes of [
@@ -174,6 +209,20 @@ test.each(["art/atlas.png", "fonts/game.woff2"])(
     ]) {
       await writeFile(join(root, path), bytes);
       const etag = `"${createHash("sha256").update(bytes).digest("hex")}"`;
+      const raw = await rawHeaders(`//${path}`);
+      expect(raw.startsWith("HTTP/1.1 200 ")).toBe(true);
+      const lines = raw.split("\r\n");
+      for (const [key, value] of Object.entries({
+        "cache-control": cache,
+        etag,
+      })) {
+        const prefix = `${key}: `;
+        expect(
+          lines
+            .find((line) => line.toLowerCase().startsWith(prefix))
+            ?.slice(prefix.length),
+        ).toBe(value);
+      }
       for (const validator of [
         undefined,
         previous,
@@ -229,6 +278,7 @@ test("two clients keep separate connections, ordered frames and private replies 
 });
 
 test("a non-upgraded WebSocket request has no room lifecycle", async () => {
+  await mkdir(root);
   await writeFile(join(root, WS_PATH), "shadow");
   expect((await get(WS_PATH)).status).toBe(400);
   await server.stop();

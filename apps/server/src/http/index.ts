@@ -1,4 +1,4 @@
-import { constants, realpathSync } from "node:fs";
+import { constants } from "node:fs";
 import { open, realpath } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import { HEALTH_PATH, WS_PATH } from "@caxio/shared/contracts/wire";
@@ -8,49 +8,42 @@ function notFound() {
   return new Response(null, { status: 404 });
 }
 
-async function serveFile(root: string, pathname: string, request: Request) {
-  try {
-    const name = decodeURIComponent(
-      pathname === "/" ? "/index.html" : pathname,
-    );
-    if (name.includes("\0") || name.split("/").includes(".."))
-      return notFound();
-    const path = await realpath(join(root, name));
-    const within = relative(root, path);
-    if (within === ".." || within.startsWith(`..${sep}`)) return notFound();
+async function serveFile(
+  staticRoot: string,
+  pathname: string,
+  request: Request,
+) {
+  const name = decodeURIComponent(pathname === "/" ? "/index.html" : pathname);
+  if (name.includes("\0") || name.split("/").includes("..")) return notFound();
+  const root = await realpath(staticRoot);
+  const path = await realpath(join(root, name));
+  const within = relative(root, path);
+  if (within === ".." || within.startsWith(`..${sep}`)) return notFound();
 
-    const file = await open(
-      path,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
-    try {
-      if (!(await file.stat()).isFile()) return notFound();
-      const bytes = await file.readFile();
-      const headers = new Headers({ "Content-Type": Bun.file(name).type });
-      if (name.startsWith("/art/") || name.startsWith("/fonts/")) {
-        const hash = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
-        const etag = `"${hash}"`;
-        headers.set("ETag", etag);
-        headers.set("Cache-Control", "public, max-age=0, must-revalidate");
-        if (request.headers.get("If-None-Match") === etag) {
-          return new Response(null, { status: 304, headers });
-        }
-      }
-      return new Response(bytes, { headers });
-    } finally {
-      await file.close();
-    }
-  } catch (error) {
+  const file = await open(
+    path,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
+  try {
+    if (!(await file.stat()).isFile()) return notFound();
+    const bytes = await file.readFile();
+    const headers = new Headers({ "Content-Type": Bun.file(name).type });
     if (
-      error instanceof URIError ||
-      (error instanceof Error &&
-        "code" in error &&
-        ["ENOENT", "ENOTDIR", "ELOOP", "EACCES", "ENAMETOOLONG"].includes(
-          String(error.code),
-        ))
-    )
-      return notFound();
-    throw error;
+      [name, `/${within}`].some(
+        (path) => path.startsWith("/art/") || path.startsWith("/fonts/"),
+      )
+    ) {
+      const hash = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+      const etag = `"${hash}"`;
+      headers.set("ETag", etag);
+      headers.set("Cache-Control", "public, max-age=0, must-revalidate");
+      if (request.headers.get("If-None-Match") === etag) {
+        return new Response(null, { status: 304, headers });
+      }
+    }
+    return new Response(bytes, { headers });
+  } finally {
+    await file.close();
   }
 }
 
@@ -59,9 +52,9 @@ export const startHttpServer: StartHttpServer = (
   staticRoot,
   port,
 ) => {
-  const root = realpathSync(staticRoot);
   const server = Bun.serve<{ connection?: RoomConnection }>({
     port,
+    error: notFound,
     fetch(request, server) {
       if (request.method !== "GET") return notFound();
       const { pathname } = new URL(request.url);
@@ -70,7 +63,7 @@ export const startHttpServer: StartHttpServer = (
         if (server.upgrade(request, { data: {} })) return;
         return new Response(null, { status: 400 });
       }
-      return serveFile(root, pathname, request);
+      return serveFile(staticRoot, pathname, request);
     },
     websocket: {
       open(ws) {
