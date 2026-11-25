@@ -23,7 +23,13 @@ import type {
   SettlementRules,
 } from "./engine";
 import { DEFAULT_MAX_ROUNDS, INITIAL_CHIPS } from "./engine";
-import { a4Settlement, firstDealState, phaseExamples } from "./fixtures";
+import {
+  a4Settlement,
+  firstDealState,
+  gameOverState,
+  phaseExamples,
+  settledState,
+} from "./fixtures";
 import type { Exact } from "./type-check";
 
 // Check the entry points in both directions so a formerly required parameter cannot silently disappear.
@@ -142,4 +148,59 @@ test("first deal projects round one and opens turn one on advance", () => {
     null,
     1,
   ]);
+});
+
+test("paid and finished engine states project to the complete seat-zero views", () => {
+  for (const [state, snapshot] of [
+    [settledState, phaseExamples[3]],
+    [gameOverState, phaseExamples[4]],
+  ] as const) {
+    const { players, lastSettlement } = state;
+    expect(state.turnId).toBe(state.lastPlay.turnId);
+    for (const seat of state.seatOrder) {
+      const hand = players[seat].hand;
+      expect(hand.length).toBe(lastSettlement.details[seat].remaining);
+      expect(hand.filter((t) => t.number === 2).length).toBe(
+        lastSettlement.details[seat].twos,
+      );
+      for (const t of hand)
+        expect(firstDealState.players[seat].hand).toContainEqual(t);
+    }
+    const projected = {
+      phase: state.phase,
+      round: state.round,
+      maxRounds: state.maxRounds,
+      maxNumber: state.maxNumber,
+      seatOrder: state.seatOrder,
+      activePlayers: state.activePlayers,
+      currentTurn: state.currentTurn,
+      slots: players.map(
+        (p) =>
+          p && {
+            remainingTileCount: p.hand.length,
+            chips: p.chips,
+            isOut: p.isOut,
+            isConnected: true,
+          },
+      ),
+      turnId: null,
+      deadline: null,
+      tableHand: state.tableHand,
+      lastPlay: state.lastPlay,
+      lastAction: state.lastAction,
+      consecutivePasses: state.consecutivePasses,
+      ranking: state.ranking,
+      lastSettlement: {
+        round: lastSettlement.round,
+        results: lastSettlement.results.map(({ seatId, rank, chipChange }) => ({
+          seatId,
+          rank,
+          chipChange,
+        })),
+      },
+      ownHand: players[0].hand,
+      ownSettlement: lastSettlement.details[0],
+    };
+    expect<object>(projected).toEqual(snapshot.view);
+  }
 });

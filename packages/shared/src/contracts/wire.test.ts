@@ -7,8 +7,10 @@ import {
   decodeServerMessage,
   ERROR_TEXT,
   errorText,
+  HEALTH_PATH,
   isRoomCode,
   UNKNOWN_ERROR_TEXT,
+  WS_PATH,
 } from "./wire";
 
 const {
@@ -231,6 +233,31 @@ test("preview specimens and rejection precedence", () => {
     { number: 3, suit: 2 },
   ]);
   expect(lower.result.reason).toBe("NOT_HIGHER");
+  const [triple, straight] = fixtures.representativeExamples;
+  expect([triple.tableHand, straight.tableHand]).toEqual([null, null]);
+  expect([triple.maxNumber, straight.maxNumber]).toEqual([9, 9]);
+  expect(triple.selected).toEqual([
+    { number: 3, suit: 0 },
+    { number: 3, suit: 1 },
+    { number: 3, suit: 2 },
+  ]);
+  expect(triple.result).toEqual({
+    ok: true,
+    kind: "TRIPLE",
+    representative: 3,
+  });
+  expect(straight.selected).toEqual([
+    { number: 1, suit: 0 },
+    { number: 2, suit: 1 },
+    { number: 3, suit: 2 },
+    { number: 4, suit: 3 },
+    { number: 5, suit: 0 },
+  ]);
+  expect(straight.result).toEqual({
+    ok: true,
+    kind: "STRAIGHT",
+    representative: { number: 2, suit: 1 },
+  });
 });
 test("app ports use only shared type imports", async () => {
   for (const app of ["web", "server"]) {
@@ -345,5 +372,42 @@ test("turn error examples replay the first violation from the recipient snapshot
     expect(code).toBe("NOT_HIGHER");
     expect(tiles).toEqual([{ number: 4, suit: 0 }]);
     expect(v.tableHand).toEqual([{ number: 9, suit: 0 }]);
+  }
+});
+
+test("HTTP adapter, client and probe share WebSocket and health paths", () => {
+  expect(WS_PATH).toBe("/ws");
+  expect(HEALTH_PATH).toBe("/healthz");
+});
+test("seated actions check phase first and resume distinguishes a missing room", () => {
+  const cases = fixtures.phaseAndResumeErrors;
+  expect(
+    cases.map((e) =>
+      "before" in e
+        ? [e.before.view.phase, e.command.type]
+        : [e.when, e.command.type],
+    ),
+  ).toEqual([
+    ["ROUND_START", "PLAY"],
+    ["ROUND_SETTLEMENT", "PASS"],
+    ["GAME_OVER", "PLAY"],
+    ["TURN_ACTIVE", "START_GAME"],
+    ["room no longer exists", "RESUME"],
+  ]);
+  for (const e of cases) {
+    expect(command(e.command)).toEqual(e.command);
+    if ("before" in e) {
+      checkFrame(e.before, e.recipient);
+      checkFrame(e.reply, e.recipient);
+      expect(e.before.view.slots[e.recipient]).not.toBeNull();
+      expect(e.now).toBeGreaterThanOrEqual(e.before.serverNow);
+      expect(e.before.view.phase).not.toBe(
+        e.command.type === "START_GAME" ? "LOBBY" : "TURN_ACTIVE",
+      );
+      expect(e.reply.code).toBe("INVALID_PHASE");
+    } else {
+      checkFrame(e.reply, null);
+      expect(e.reply.code).toBe("ROOM_NOT_FOUND");
+    }
   }
 });

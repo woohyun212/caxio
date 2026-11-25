@@ -16,14 +16,16 @@ export interface ClientModel {
   readonly view: PlayerView | null;
   readonly revision: number | null;
   readonly selected: readonly Tile[];
-  // Last ERROR.code as received, including unknown codes. The UI maps it with errorText.
+  // ERROR sets its code. A rejected server frame sets only errorCode to INVALID_MESSAGE.
+  // Every action except setMuted clears it, including toggleTile. Accepted snapshots clear it only on currentTurn change.
+  // Controls display errorText(errorCode) while non-null, with no local dismissal state.
   readonly errorCode: string | null;
   readonly muted: boolean;
   readonly pending: Command | null;
   readonly credential: Credential | null;
   readonly timeAnchor: {
     readonly serverNow: number;
-    // Client monotonic milliseconds from monotonicNow (performance.now in the browser).
+    // Assembly injects () => performance.now(); controls use performance.now() for the countdown.
     readonly receivedAt: number;
   } | null;
 }
@@ -62,6 +64,8 @@ export interface ClientDependencies {
   // Called only for new audible events while unmuted; first/resume snapshots establish a silent baseline.
   effects(events: readonly ClientEffect[]): void;
 }
+// Construction opens no socket. Assembly calls resume() once at startup; without a stored credential it does nothing.
+// After an unexpected close with a credential, the session opens a new socket and retries RESUME.
 export type CreateClientSession = (deps: ClientDependencies) => ClientSession;
 export interface AudioEffects {
   unlock(): void;

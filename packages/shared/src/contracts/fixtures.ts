@@ -76,6 +76,26 @@ export const previewExamples = [
   result: PreviewResult;
 }[];
 
+export const representativeExamples = [
+  {
+    selected: [tile(3, 0), tile(3, 1), tile(3, 2)],
+    tableHand: null,
+    maxNumber: 9,
+    result: { ok: true, kind: "TRIPLE", representative: 3 },
+  },
+  {
+    selected: [tile(1, 0), tile(2, 1), tile(3, 2), tile(4, 3), tile(5, 0)],
+    tableHand: null,
+    maxNumber: 9,
+    result: { ok: true, kind: "STRAIGHT", representative: tile(2, 1) },
+  },
+] as const satisfies readonly {
+  selected: readonly Tile[];
+  tableHand: null;
+  maxNumber: 9;
+  result: PreviewResult;
+}[];
+
 function slot(
   remainingTileCount = 0,
   chips = 64,
@@ -151,31 +171,6 @@ const player = (hand: readonly Tile[]) => ({
   eliminatedRound: null,
   eliminatedEffectiveTiles: null,
 });
-export const firstDealState = {
-  phase: "ROUND_START",
-  round: 1,
-  maxRounds: 5,
-  maxNumber: 9,
-  seatOrder: order,
-  activePlayers: order,
-  players: [
-    player(initialHands[0]),
-    player(initialHands[1]),
-    player(initialHands[2]),
-    null,
-    null,
-  ],
-  roundLeader: 0,
-  currentTurn: 0,
-  lastPlayedBy: 0,
-  turnId: 0,
-  consecutivePasses: 0,
-  tableHand: null,
-  lastAction: null,
-  lastPlay: null,
-  lastSettlement: null,
-  ranking: [],
-} as const satisfies GameState;
 const start = {
   phase: "ROUND_START",
   round: 1,
@@ -280,6 +275,54 @@ const ranking = [
   { seatId: 2, rank: 3 },
 ] as const;
 const ended = { ...paid, maxRounds: 1, phase: "GAME_OVER", ranking } as const;
+export const firstDealState = {
+  phase: "ROUND_START",
+  round: 1,
+  maxRounds: 5,
+  maxNumber: 9,
+  seatOrder: order,
+  activePlayers: order,
+  players: [
+    player(initialHands[0]),
+    player(initialHands[1]),
+    player(initialHands[2]),
+    null,
+    null,
+  ],
+  roundLeader: 0,
+  currentTurn: 0,
+  lastPlayedBy: 0,
+  turnId: 0,
+  consecutivePasses: 0,
+  tableHand: null,
+  lastAction: null,
+  lastPlay: null,
+  lastSettlement: null,
+  ranking: [],
+} as const satisfies GameState;
+export const settledState = {
+  ...firstDealState,
+  phase: "ROUND_SETTLEMENT",
+  players: [
+    { ...player([]), chips: 67 },
+    player([tile(4, 0)]),
+    { ...player([tile(7, 0), tile(8, 2)]), chips: 61 },
+    null,
+    null,
+  ],
+  currentTurn: null,
+  turnId: lastPlay.turnId,
+  tableHand: lastPlay.tiles,
+  lastPlay,
+  lastAction: { type: "PLAY", automatic: false, turnId: 63, seatId: 0 },
+  lastSettlement: a4Settlement,
+} as const satisfies GameState;
+export const gameOverState = {
+  ...settledState,
+  maxRounds: 1,
+  phase: "GAME_OVER",
+  ranking,
+} as const satisfies GameState;
 export const lastPlaySequence = {
   recipient: 0,
   continuing: [
@@ -742,5 +785,41 @@ export const errorExamples = [
     command: { type: "JOIN_ROOM", roomCode: " abcd23 " },
     when: "noncanonical wire input",
     reply: error("INVALID_MESSAGE"),
+  },
+] as const;
+
+export const phaseAndResumeErrors = [
+  {
+    before: phaseExamples[1],
+    recipient: 0,
+    now: phaseExamples[1].serverNow,
+    command: { type: "PLAY", turnId: 1, tiles: [tile(3, 0)] },
+    reply: error("INVALID_PHASE"),
+  },
+  {
+    before: phaseExamples[3],
+    recipient: 0,
+    now: phaseExamples[3].serverNow,
+    command: { type: "PASS", turnId: 63 },
+    reply: error("INVALID_PHASE"),
+  },
+  {
+    before: phaseExamples[4],
+    recipient: 0,
+    now: phaseExamples[4].serverNow,
+    command: { type: "PLAY", turnId: 64, tiles: [lastTile] },
+    reply: error("INVALID_PHASE"),
+  },
+  {
+    before: phaseExamples[2],
+    recipient: 0,
+    now: phaseExamples[2].serverNow,
+    command: { type: "START_GAME" },
+    reply: error("INVALID_PHASE"),
+  },
+  {
+    when: "room no longer exists",
+    command: { type: "RESUME", roomCode: "ZZZZ99", token: "fixture-A" },
+    reply: error("ROOM_NOT_FOUND"),
   },
 ] as const;
