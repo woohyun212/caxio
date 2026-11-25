@@ -178,6 +178,7 @@ const rules = [
   "일반 3..7부터 (N−4)..N · 특수 1·2·3·4·5, 2·3·4·5·6 · (N−3)..N 다음 1 허용 · (N−2)..N 다음 1·2 금지 · 남은 장수×2^(남은 2의 수)",
 ];
 export function Panel({
+  compact = false,
   kind,
   page,
   view,
@@ -185,6 +186,7 @@ export function Panel({
   setPage,
   close,
 }: {
+  compact?: boolean;
   kind: PanelKind;
   page: number;
   view: PlayerView;
@@ -193,16 +195,21 @@ export function Panel({
   close: () => void;
 }) {
   const s = view.lastSettlement,
-    own = view.ownSettlement;
+    own =
+      view.ownSettlement?.round === s?.round ? view.ownSettlement : undefined;
+  const rowsPerPage = compact ? 1 : 3;
   const pages =
     kind === "rules"
       ? 3
       : kind === "settlement" && s
-        ? Math.ceil(s.results.length / 3)
+        ? Math.ceil((s.results.length + (compact && own ? 1 : 0)) / rowsPerPage)
         : 1;
+  // Resizing to wide can put the compact page past the last wide page.
+  const current = Math.min(page, pages - 1);
   return (
     <section
       className="gc-panel"
+      data-panel={kind}
       aria-label={
         kind === "menu" ? "메뉴" : kind === "rules" ? "족보" : "직전 정산"
       }
@@ -221,19 +228,21 @@ export function Panel({
         s && (
           <>
             <strong>R{s.round} 정산</strong>
-            {s.results.slice(page * 3, page * 3 + 3).map((r) => (
-              <div key={r.seatId}>
-                {r.rank}위 {seatLabel(r.seatId)}{" "}
-                {r.chipChange > 0 ? "+" : r.chipChange < 0 ? "−" : ""}
-                {Math.abs(r.chipChange)}칩 → {view.slots[r.seatId]?.chips}칩{" "}
-                {view.slots[r.seatId]?.isOut
-                  ? view.phase === "GAME_OVER"
-                    ? "탈락"
-                    : "탈락 · 다음 판 관전"
-                  : ""}
-              </div>
-            ))}
-            {own?.round === s.round && (
+            {s.results
+              .slice(current * rowsPerPage, (current + 1) * rowsPerPage)
+              .map((r) => (
+                <div key={r.seatId}>
+                  {r.rank}위 {seatLabel(r.seatId)}{" "}
+                  {r.chipChange > 0 ? "+" : r.chipChange < 0 ? "−" : ""}
+                  {Math.abs(r.chipChange)}칩 → {view.slots[r.seatId]?.chips}칩{" "}
+                  {view.slots[r.seatId]?.isOut
+                    ? view.phase === "GAME_OVER"
+                      ? "탈락"
+                      : "탈락 · 다음 판 관전"
+                    : ""}
+                </div>
+              ))}
+            {own && (!compact || current === s.results.length) && (
               <div>
                 남은 {own.remaining}장 × {2 ** own.twos}배(2가 {own.twos}장) ={" "}
                 {own.effective}
@@ -246,14 +255,14 @@ export function Panel({
         {pages > 1 && (
           <>
             <Action
-              reason={page === 0 ? "첫 쪽" : ""}
-              onClick={() => setPage(page - 1)}
+              reason={current === 0 ? "첫 쪽" : ""}
+              onClick={() => setPage(current - 1)}
             >
               이전
             </Action>
             <Action
-              reason={page + 1 >= pages ? "마지막 쪽" : ""}
-              onClick={() => setPage(page + 1)}
+              reason={current + 1 >= pages ? "마지막 쪽" : ""}
+              onClick={() => setPage(current + 1)}
             >
               다음
             </Action>

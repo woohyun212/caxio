@@ -14,6 +14,7 @@ import { frame, palette, sceneZones, stage, tile } from "../visual/tokens";
 import { Action, EndScreen, Entry, Lobby, Panel } from "./screens";
 import {
   clockText,
+  dealText,
   describe,
   locks,
   nextFocusSlot,
@@ -34,10 +35,12 @@ function Board({
   props,
   view,
   mode,
+  seenTurn,
 }: {
   props: GameControlsProps;
   view: GameView;
   mode: Mode;
+  seenTurn: number | null | undefined;
 }) {
   const { model, layout, preview } = props;
   const wide = mode === "wide",
@@ -50,14 +53,14 @@ function Board({
     null,
   );
   const [old, setOld] = useState(model),
-    [notice, setNotice] = useState(() => nextNotice(null, model, ""));
+    [notice, setNotice] = useState(() => nextNotice(null, model, "", seenTurn));
   const [shown, setShown] = useState(() =>
     nextPanel(null, view, { kind: null, page: 0 }),
   );
   const { kind: panel, page } = shown;
   if (old !== model) {
     setOld(model);
-    setNotice(nextNotice(old, model, notice));
+    setNotice(nextNotice(old, model, notice, seenTurn));
     setShown(nextPanel(old.view, view, shown));
   }
   const focusPanel = useRef(false),
@@ -160,6 +163,7 @@ function Board({
     (model.errorCode !== null
       ? errorText(model.errorCode)
       : notice || (out || end ? "" : lock.standing));
+  const compactDeal = !wide && message && message === dealText(view);
   const summary = describe(result);
   const reasonId = (reason: string) =>
     reason === message
@@ -173,11 +177,6 @@ function Board({
     [lock.hand, lock.play, lock.pass].find(
       (reason) => reason && reasonId(reason) === "gc-extra",
     );
-  const explanation = extra && (
-    <aside id="gc-extra" className="gc-extra">
-      {extra}
-    </aside>
-  );
   const time = left === null ? "" : clockText(left);
   const forecast = view.tableHand ? "초과 시 패스" : "초과 시 최저 1장";
   const action = (kind: "play" | "pass") =>
@@ -281,7 +280,6 @@ function Board({
             {caption}
           </span>
           <Tiles tiles={center} slots={layout.table} mode={mode} />
-          {!wide && !panel && explanation}
         </div>
         {wide && opaque && (
           <span
@@ -318,7 +316,13 @@ function Board({
             notice && message === notice ? view.lastAction?.turnId : "status"
           }
         >
-          {message}
+          {compactDeal ? (
+            <span role="note" aria-label={message}>
+              {dealText(view, true)}
+            </span>
+          ) : (
+            message
+          )}
         </span>
       </div>
       <div className="gc-command">
@@ -374,29 +378,41 @@ function Board({
           openSettlement={(button) => {
             caller.current = button;
             open("settlement");
+            focusPanel.current = true;
           }}
         />
       )}
-      {(panel || (wide && extra)) && (
+      {extra && (
+        <span id="gc-extra" hidden>
+          {extra}
+        </span>
+      )}
+      {panel && (
         <div
           className="gc-panel-slot"
           style={
             wide
-              ? box({ ...layout.felt, y: frame.statusHeight + layout.felt.y })
+              ? {
+                  ...box({
+                    x: stage.stadium.x - stage.stadium.centerSpacing / 2,
+                    y: frame.statusHeight + stage.caption.y,
+                    w: stage.stadium.centerSpacing,
+                    h: 2 * (stage.stadium.y - stage.caption.y),
+                  }),
+                  maxHeight: `calc(${layout.felt.y + layout.felt.h - stage.caption.y}px - var(--gc-fallback-height))`,
+                }
               : undefined
           }
         >
-          {explanation}
-          {panel && (
-            <Panel
-              kind={panel}
-              page={page}
-              view={view}
-              open={open}
-              setPage={(n) => setShown({ kind: panel, page: n })}
-              close={close}
-            />
-          )}
+          <Panel
+            compact={!wide}
+            kind={panel}
+            page={page}
+            view={view}
+            open={open}
+            setPage={(n) => setShown({ kind: panel, page: n })}
+            close={close}
+          />
         </div>
       )}
     </fieldset>
@@ -411,6 +427,14 @@ const colors = Object.fromEntries(
 export const GameControls: GameControlsComponent<ReactElement> = (props) => {
   const { view, errorCode } = props.model,
     wide = props.k >= frame.wideMinScale;
+  // A cleared view unmounts the board; keep only the committed public action ID for this seat.
+  const memory = useRef<{ token: string; turn: number | null } | null>(null);
+  const token = props.model.credential?.token;
+  useLayoutEffect(() => {
+    if (!token || memory.current?.token !== token) memory.current = null;
+    if (token && view && props.model.connection === "CONNECTED")
+      memory.current = { token, turn: view.lastAction?.turnId ?? null };
+  }, [token, view, props.model.connection]);
   const style = {
     ...colors,
     "--gc-unit": wide ? "1px" : `${tile.compactScale}px`,
@@ -439,7 +463,10 @@ export const GameControls: GameControlsComponent<ReactElement> = (props) => {
         <Lobby {...props} view={view} message={message} />
       ) : (
         <Board
-          key={props.model.credential?.token}
+          key={token}
+          seenTurn={
+            memory.current?.token === token ? memory.current?.turn : undefined
+          }
           props={props}
           mode={wide ? "wide" : "compact"}
           view={view}

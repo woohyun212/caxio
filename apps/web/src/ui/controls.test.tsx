@@ -843,12 +843,12 @@ test("wide felt panels reserve the fallback notice and the panel shadow", () => 
   expect(styleRule(".gc-wide .gc-opaque")).toContain(
     "--gc-fallback-height: 14px",
   );
-  expect(styleRule(".gc-wide .gc-panel-slot")).toContain(
-    "padding-bottom: calc(var(--gc-fallback-height) + 2px)",
-  );
+  expect(styleRule(".gc-wide .gc-panel-slot")).toContain("padding-bottom: 2px");
   const paid = lastPlaySequence.continuing[3].view;
-  expect(render({ ...props(paid), graphicsReady: false })).toContain(
-    "top:calc(144px - var(--gc-fallback-height))",
+  const fallback = render({ ...props(paid), graphicsReady: false });
+  expect(fallback).toContain("top:calc(144px - var(--gc-fallback-height))");
+  expect(fallback).toMatch(
+    /class="gc-panel-slot" style="[^"]*top:75px[^"]*height:78px;max-height:calc\(85px - var\(--gc-fallback-height\)\)/,
   );
   expect(
     render({
@@ -1238,5 +1238,126 @@ test("wide caption expands in height inside the felt for a five-tile previous pl
   expect(caption).toContain("max-width:416px");
   expect(caption).toContain(
     "직전 제출 · 3번 · 스트레이트 플러시 · 구름 11, 구름 12, 구름 13, 구름 14, 구름 15",
+  );
+});
+
+test("a deal takes the message row while the opponent lock remains a control description", () => {
+  const reason = "내 차례를 기다려 주세요";
+  for (const k of [1, 3]) {
+    const html = render(props(dealExamples[0].view, { seatId: 1 }, k));
+    expectLock(html, actionTag(html, "submit"), "서버 응답 대기");
+    expect(html).toMatch(/id="gc-extra" hidden="">서버 응답 대기</);
+    const opponent = render(
+      props({ ...follow, currentTurn: 1 }, { errorCode: "INVALID_MESSAGE" }, k),
+    );
+    expectLock(opponent, actionTag(opponent, "pass"), reason);
+    expect(opponent).toContain(`id="gc-extra" hidden="">${reason}<`);
+  }
+});
+
+test("compact deals keep the full sentence as the accessible name of the shorter notice", () => {
+  for (const { view } of dealExamples) {
+    const count = view.ownHand?.length;
+    const full = `R1 · 숫자 1~${view.maxNumber} · ${count}장씩 · 선 1번(구름 3)`;
+    const short = `R1 1~${view.maxNumber} ${count}장씩 선 1번 구름3`;
+    expect(render(props(view, {}, 1))).toContain(
+      `role="note" aria-label="${full}">${short}</span>`,
+    );
+    expect(render(props(view))).toContain(`id="gc-live-text">${full}</span>`);
+  }
+});
+
+test("a returned seat announces only an unseen automatic action from this document", () => {
+  for (const type of ["PASS", "PLAY"] as const) {
+    const lastAction = { type, turnId: 7, seatId: 0, automatic: true } as const;
+    const m = props({ ...follow, lastAction }).model;
+    const expected =
+      type === "PLAY"
+        ? "시간 초과로 최저 싱글을 냈어요"
+        : "시간 초과로 패스했어요";
+    for (const seen of [null, 6])
+      expect(nextNotice(null, m, "", seen)).toBe(expected);
+    expect(nextNotice(null, m, "", 7)).toBe("");
+    expect(nextNotice(null, m, "")).toBe("");
+    expect(
+      nextNotice(
+        null,
+        props({ ...follow, lastAction: { ...lastAction, automatic: false } })
+          .model,
+        "",
+        6,
+      ),
+    ).toBe("");
+  }
+});
+
+test("compact settlement pages fill the natural center and visit every public row and the recipient's detail", () => {
+  const view = lastPlaySequence.continuing[3].view;
+  const texts = [
+    "1위 1번 +3칩 → 67칩",
+    "2위 2번 0칩 → 64칩",
+    "3위 3번 −3칩 → 61칩",
+    "배(2가 0장)",
+  ];
+  for (const [page, row] of texts.entries()) {
+    const html = renderToStaticMarkup(
+      <Panel
+        compact
+        kind="settlement"
+        view={view}
+        page={page}
+        setPage={noop}
+        open={noop}
+        close={noop}
+      />,
+    );
+    expect(html).toContain(row);
+    for (const other of texts.filter((t) => t !== row))
+      expect(html).not.toContain(other);
+    expect(html).toMatch(/이전.*다음.*닫기/);
+  }
+  expect(render(props(view, {}, 1))).not.toContain(texts[1] ?? "");
+  expect(styleRule(".gc-compact .gc-table")).toMatch(
+    /^ {2}min-height: 80px;$/m,
+  );
+  expect(css).toMatch(
+    /\.gc-compact \.gc-table,\s*\.gc-compact \.gc-hand\s*\{[^}]*\bflex-wrap: wrap;/,
+  );
+  const overlay = styleRule(
+    '.gc-compact .gc-panel-slot:has([data-panel="menu"], [data-panel="settlement"])',
+  );
+  expect(overlay).toMatch(/^ {2}position: absolute;$/m);
+  expect(overlay).toMatch(/^ {2}inset: 0;$/m);
+  expect(overlay).not.toMatch(/(?:^|\n)\s*(?:min-|max-)?height:/);
+  expect(css).not.toMatch(
+    /\.gc-compact \.gc-center\s*\{[^}]*\b(?:height|overflow):/,
+  );
+  expect(styleRule('.gc-compact .gc-panel[data-panel="settlement"]')).toContain(
+    "grid-template-rows: 44px 1fr",
+  );
+});
+
+test("tight text rows offset native Galmuri ink without adding to their line height", () => {
+  const rows = styleRule(".gc .gc-panel > :is(strong, div:not(.gc-actions))");
+  expect(rows).toContain("display: flow-root;");
+  expect(rows).toContain("padding-block-start: calc(var(--gc-unit) / 2)");
+  expect(rows).toContain("margin-block-start: calc(var(--gc-unit) / -2)");
+  expect(css).toMatch(
+    /\.gc-center\[data-covered="true"\],\s*\.gc-end:has\(~ \.gc-panel-slot\)\s*\{\s*visibility: hidden/,
+  );
+});
+
+test("wide settlement rows leave ink room at either edge of the inner felt panel", () => {
+  expect(styleRule(".gc-wide .gc-panel")).toContain("width: 100%");
+  expect(
+    styleRule(
+      '.gc-wide :where([data-panel="settlement"]) > div:not(.gc-actions)',
+    ),
+  ).toContain("padding-inline: 1px");
+});
+
+test("compact controls preserve room for seven hand slots during vertical scrollbar reflow", () => {
+  expect(styleRule(":root:has(.gc-compact)")).toContain(
+    "scrollbar-width: thin",
   );
 });
