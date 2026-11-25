@@ -1,0 +1,104 @@
+{
+  "inspection": [
+    {
+      "path": "design/assets/outputs/mask-digits.png",
+      "bytes": 193,
+      "sha256": "9fb87e8a2ec02241a0456e8f455f54995df08fcf2d1f0e277883903bb57c5a91"
+    },
+    {
+      "path": "design/assets/outputs/mask-suits.png",
+      "bytes": 225,
+      "sha256": "5d4333444f11e47c5c593d3152916958c18c580d9c0a9c0807efbb6ccc8ebd1f"
+    },
+    {
+      "path": "design/assets/outputs/mask-back.png",
+      "bytes": 157,
+      "sha256": "7c936f323ae2a41e07582287ea65d8b09030628002bd28362d50f76c7d74b0c9"
+    },
+    {
+      "path": "design/assets/outputs/contact-shapes-1x.png",
+      "bytes": 1216,
+      "sha256": "e7ecfd019d6c5b0b38ca1c8fd7c612813489bf3917487a1e0262e1390c22c5ad"
+    },
+    {
+      "path": "design/assets/outputs/contact-gray-1x.png",
+      "bytes": 1251,
+      "sha256": "7160b101c8a0c3424512fdb6561d14bffd1e6bbab964bd830f217a1d0773a06a"
+    },
+    {
+      "path": "design/assets/outputs/contact-wide-1x.png",
+      "bytes": 1251,
+      "sha256": "0423274f86644d7a89f895f06c60f1966de377e5be3faf5989c20998f5804b41"
+    },
+    {
+      "path": "design/assets/outputs/contact-wide-2x.png",
+      "bytes": 2942,
+      "sha256": "3bcb39579bccba30c68add7368f3682836aef32bffa1735b127baad6f482940d"
+    },
+    {
+      "path": "design/assets/outputs/contact-wide-3x.png",
+      "bytes": 4988,
+      "sha256": "76300daf77f8d75431ef570b40266ad5d83d1a7c4b0df950a9013f951c95ad10"
+    },
+    {
+      "path": "design/assets/outputs/contact-wide-4x.png",
+      "bytes": 7536,
+      "sha256": "b2b03cb4c8aa77ae891e77c900d2f215f0c339c491e7704448620133c5062807"
+    },
+    {
+      "path": "design/assets/outputs/contact-compact-1x.png",
+      "bytes": 1181,
+      "sha256": "eeaef6afea262639934f9b5c7a7cbde51516af267ecfd6507cee4ca9b4028326"
+    },
+    {
+      "path": "design/assets/outputs/contact-compact-2x.png",
+      "bytes": 2796,
+      "sha256": "ef1a436559487dc07abc3b18f3abea3b56843e412a8e46de72f65caf5ceae0c2"
+    },
+    {
+      "path": "design/assets/outputs/contact-compact-3x.png",
+      "bytes": 4587,
+      "sha256": "0054eb8ebfdab8f3f78751518ce7582e144fa29e17b2ea4e7ecab9f30d47e3fd"
+    },
+    {
+      "path": "design/assets/outputs/contact-compact-4x.png",
+      "bytes": 6905,
+      "sha256": "c8e602a2bf09ea393e2a6f1f6fb34d1a3962e1507bb6c9f86caf00ca6d19eb78"
+    },
+    {
+      "path": "design/assets/outputs/bayer-2.png",
+      "bytes": 128,
+      "sha256": "33b018a68a289d66f71bc796906a716d908c91eccdeb6e605811cd94499a7111"
+    },
+    {
+      "path": "design/assets/outputs/bayer-5.png",
+      "bytes": 132,
+      "sha256": "9f097b3b295800df79020603aa21421373167a92470ea880f8477ded2ea72a76"
+    },
+    {
+      "path": "design/assets/outputs/bayer-8.png",
+      "bytes": 129,
+      "sha256": "a5d038b83148aa5f23da705c3e8787753e8206866c408fd2765237d2933a7ad0"
+    }
+  ],
+  "digitRuns": [
+    [3, 3],
+    [4, 2],
+    [3, 3],
+    [3, 3],
+    [3, 3],
+    [3, 3],
+    [3, 3],
+    [3, 3],
+    [3, 3],
+    [3, 3]
+  ],
+  "sunComponents": [36, 5, 5, 4, 4, 4, 4, 4, 4],
+  "contrastOnPaper": {
+    "ink": 11.461559113747937,
+    "cloud": 3.597884841117207,
+    "star": 7.637708914338343,
+    "moon": 3.144095933611892,
+    "sun": 5.5975878849161465
+  }
+}
