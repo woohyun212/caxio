@@ -30,7 +30,11 @@ type Hand<
   C extends number,
   R extends Tile | number,
 > = Readonly<{ kind: K; count: C; representative: R; key: readonly number[] }>;
-/** Lexicographic strength within a count. Made hands include tier first. */
+/** The key orders equal-size hands lexicographically, with made tier first.
+ * The display representative is the single tile or the higher-suit tile of a pair.
+ * Triple, full house and four of a kind use the body's Tile.number.
+ * Straight, flush and straight flush use the highest-numRank tile (the 2 in 1-2-3-4-5). See visual-spec §4.
+ */
 export type HandKey =
   | Hand<"SINGLE", 1, Tile>
   | Hand<"PAIR", 2, Tile>
@@ -64,6 +68,7 @@ export type LastPlay = Readonly<{
   tiles: readonly Tile[];
 }>;
 export type RankingRow = Readonly<{ seatId: SeatId; rank: number }>;
+/** Unique payment rank 1..M by effective count, remaining count, then turn order from roundLeader. */
 export type SettlementRow = RankingRow & { readonly chipChange: number };
 export type LastSettlement = Readonly<{
   round: number;
@@ -96,7 +101,8 @@ export type GameState = Readonly<{
   roundLeader: SeatId | null;
   currentTurn: SeatId | null;
   lastPlayedBy: SeatId | null;
-  // Last allocated ID: 0 in the first ROUND_START, increment when opening each TURN_ACTIVE.
+  // Numeric in every phase: 0 in the first ROUND_START, increment when opening each TURN_ACTIVE.
+  // Room projection nulls turnId/deadline outside TURN_ACTIVE, projects settlement, and copies other same-named public fields.
   turnId: number;
   consecutivePasses: number;
   tableHand: readonly Tile[] | null;

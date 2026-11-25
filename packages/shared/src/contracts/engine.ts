@@ -23,8 +23,10 @@ export interface HandRules {
   classify: Classify;
   compare: Compare;
 }
-/** Pay once, attach the ordered settlement, update balances and remove OUT from activePlayers. */
+/** Settle independently of phase. Change only chips, isOut, eliminatedRound, eliminatedEffectiveTiles,
+ * activePlayers and lastSettlement; preserve hands and phase. */
 export type Settle = (state: GameState) => GameState;
+/** Competition ranks: ties share a place (1, 1, 3). */
 export type Rank = (state: GameState) => readonly RankingRow[];
 /** After settlement, check last round before survivor count. */
 export type IsGameOver = (state: GameState) => false | GameOverReason;
@@ -41,7 +43,7 @@ export type StartRound = (
   rng: Rng,
   maxRounds?: number,
 ) => GameState;
-/** Winning PLAY returns a paid ROUND_SETTLEMENT for broadcast before advance. */
+/** Winning PLAY records lastPlay, lastAction and tableHand, sets ROUND_SETTLEMENT and currentTurn=null, then returns settle(state). */
 export type ApplyTurn = (
   state: GameState,
   seat: SeatId,
@@ -49,7 +51,9 @@ export type ApplyTurn = (
   automatic?: boolean,
 ) => TransitionResult;
 export type TimeoutAction = (state: GameState) => Action;
-/** ROUND_START opens the lead turn. Only advance deals subsequent rounds, after the nonterminal settlement. */
+/** ROUND_START opens the lead turn. From settlement, a game-over reason sets GAME_OVER and ranking=rank(state),
+ * preserving hands, tableHand, lastPlay, lastAction and currentTurn=null. Otherwise deal ROUND_START, clear those
+ * three play records, reset consecutivePasses to 0, empty OUT hands and keep lastSettlement. */
 export type Advance = (state: GameState, rng: Rng) => GameState;
 export interface RoundRules {
   startRound: StartRound;

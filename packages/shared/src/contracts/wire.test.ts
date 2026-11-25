@@ -7,8 +7,10 @@ import {
   decodeServerMessage,
   ERROR_TEXT,
   errorText,
+  HEALTH_PATH,
   isRoomCode,
   UNKNOWN_ERROR_TEXT,
+  WS_PATH,
 } from "./wire";
 
 const {
@@ -345,5 +347,42 @@ test("turn error examples replay the first violation from the recipient snapshot
     expect(code).toBe("NOT_HIGHER");
     expect(tiles).toEqual([{ number: 4, suit: 0 }]);
     expect(v.tableHand).toEqual([{ number: 9, suit: 0 }]);
+  }
+});
+
+test("HTTP adapter, client and probe share WebSocket and health paths", () => {
+  expect(WS_PATH).toBe("/ws");
+  expect(HEALTH_PATH).toBe("/healthz");
+});
+test("seated actions check phase first and resume distinguishes a missing room", () => {
+  const cases = fixtures.phaseAndResumeErrors;
+  expect(
+    cases.map((e) =>
+      "before" in e
+        ? [e.before.view.phase, e.command.type]
+        : [e.when, e.command.type],
+    ),
+  ).toEqual([
+    ["ROUND_START", "PLAY"],
+    ["ROUND_SETTLEMENT", "PASS"],
+    ["GAME_OVER", "PLAY"],
+    ["TURN_ACTIVE", "START_GAME"],
+    ["room no longer exists", "RESUME"],
+  ]);
+  for (const e of cases) {
+    expect(command(e.command)).toEqual(e.command);
+    if ("before" in e) {
+      checkFrame(e.before, e.recipient);
+      checkFrame(e.reply, e.recipient);
+      expect(e.before.view.slots[e.recipient]).not.toBeNull();
+      expect(e.now).toBeGreaterThanOrEqual(e.before.serverNow);
+      expect(e.before.view.phase).not.toBe(
+        e.command.type === "START_GAME" ? "LOBBY" : "TURN_ACTIVE",
+      );
+      expect(e.reply.code).toBe("INVALID_PHASE");
+    } else {
+      checkFrame(e.reply, null);
+      expect(e.reply.code).toBe("ROOM_NOT_FOUND");
+    }
   }
 });

@@ -10,6 +10,9 @@ import type {
   Slots,
   Tile,
 } from "./domain";
+export const WS_PATH = "/ws";
+// GET HEALTH_PATH returns 200 with body "ok"; the probe asserts status 200 only.
+export const HEALTH_PATH = "/healthz";
 export const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export function isRoomCode(value: unknown): value is string {
   return (
@@ -62,7 +65,7 @@ export type PublicSeat = Readonly<{
 type TableFields = Readonly<{
   slots: Slots<PublicSeat>;
   seatOrder: readonly SeatId[];
-  // Join order without OUT seats, including immediately after payment in ROUND_SETTLEMENT.
+  // [] in LOBBY; otherwise join order without OUT seats, including immediately after payment in ROUND_SETTLEMENT.
   activePlayers: readonly SeatId[];
   consecutivePasses: number;
   maxRounds: number;
@@ -71,6 +74,7 @@ type TableFields = Readonly<{
   lastPlay: LastPlay | null;
   // ROUND_START clears both lastAction and lastPlay.
   lastAction: LastAction | null;
+  // Project round and each row's seatId, rank, chipChange. Passing through GameState.lastSettlement leaks details and payments.
   lastSettlement: LastSettlement | null;
 }>;
 type RoundFields = { readonly round: number; readonly maxNumber: MaxNumber };
@@ -473,7 +477,7 @@ function validView(v: unknown, recipient: SeatId): v is PlayerView {
     );
   return !over || v.round === v.maxRounds || active.length < 3;
 }
-/** SNAPSHOT privacy is checked against the socket's bound seat. A first SEATED can establish it. */
+/** Check SNAPSHOT privacy against the socket's bound seat. The server sends SEATED before its first SNAPSHOT. */
 export function decodeServerMessage(
   frame: unknown,
   recipient: SeatId | null,
