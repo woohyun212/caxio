@@ -2,7 +2,7 @@ import type { PlayerView } from "@caxio/shared/contracts/wire";
 import { type ReactNode, useRef, useState } from "react";
 import type { GameControlsProps } from "../contracts";
 import { seatLabel } from "../visual/layout";
-import { activate, enterCode, outage } from "./state";
+import { activate, enterCode, outage, type PanelKind } from "./state";
 
 export function Action({
   children,
@@ -34,9 +34,8 @@ export function Entry({
   model,
   createRoom,
   joinRoom,
-  resume,
   message,
-}: Pick<GameControlsProps, "model" | "createRoom" | "joinRoom" | "resume"> & {
+}: Pick<GameControlsProps, "model" | "createRoom" | "joinRoom"> & {
   message: string;
 }) {
   const [code, setCode] = useState(""),
@@ -83,9 +82,6 @@ export function Entry({
           입장
         </button>
       </form>
-      {model.credential && model.connection === "DISCONNECTED" && (
-        <Action onClick={resume}>자리 복구</Action>
-      )}
       <div id="gc-entry-status">{busy}</div>
       <div aria-live="polite">
         {message || (invalid ? "6자리 방 코드를 확인해 주세요." : "") || busy}
@@ -171,7 +167,6 @@ export function Lobby({
   );
 }
 
-export type PanelKind = "menu" | "rules" | "settlement";
 const rules = [
   "숫자 3..N<1<2 · 구름<별<달<해 · 1·2·3·5장",
   "스트레이트<플러시<풀하우스<포카드<스트레이트 플러시 · 플러시는 숫자 먼저",
@@ -245,20 +240,18 @@ export function Panel({
       <div className="gc-actions">
         {pages > 1 && (
           <>
-            <button
-              type="button"
-              disabled={page === 0}
+            <Action
+              reason={page === 0 ? "첫 쪽" : ""}
               onClick={() => setPage(page - 1)}
             >
               이전
-            </button>
-            <button
-              type="button"
-              disabled={page + 1 >= pages}
+            </Action>
+            <Action
+              reason={page + 1 >= pages ? "마지막 쪽" : ""}
               onClick={() => setPage(page + 1)}
             >
               다음
-            </button>
+            </Action>
           </>
         )}
         <Action onClick={close}>닫기</Action>

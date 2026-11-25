@@ -159,6 +159,28 @@ export function automaticSettlement(view: PlayerView | null) {
     (view.round === view.lastSettlement.round || !view.lastPlay)
   );
 }
+export type PanelKind = "menu" | "rules" | "settlement";
+export type PanelState = { kind: PanelKind | null; page: number };
+export function nextPanel(
+  previous: PlayerView | null,
+  view: PlayerView,
+  current: PanelState,
+): PanelState {
+  if (view.phase === "GAME_OVER" && previous?.phase !== view.phase)
+    return { kind: null, page: 0 };
+  if (
+    automaticSettlement(view) &&
+    previous?.lastSettlement?.round !== view.lastSettlement?.round
+  )
+    return { kind: "settlement", page: 0 };
+  if (
+    current.kind === "settlement" &&
+    automaticSettlement(previous) &&
+    !automaticSettlement(view)
+  )
+    return { kind: null, page: 0 };
+  return current;
+}
 export function nextFocusSlot(
   before: readonly string[],
   index: number,

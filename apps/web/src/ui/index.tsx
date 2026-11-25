@@ -11,22 +11,16 @@ import {
 import type { GameControlsComponent, GameControlsProps } from "../contracts";
 import { handOrder, type Mode, seatLabel } from "../visual/layout";
 import { frame, palette, sceneZones, stage, tile } from "../visual/tokens";
+import { Action, EndScreen, Entry, Lobby, Panel } from "./screens";
 import {
-  Action,
-  EndScreen,
-  Entry,
-  Lobby,
-  Panel,
-  type PanelKind,
-} from "./screens";
-import {
-  automaticSettlement,
   clockText,
   describe,
   locks,
   nextFocusSlot,
   nextNotice,
+  nextPanel,
   outage,
+  type PanelKind,
   passedSeats,
   requestTurn,
   seconds,
@@ -57,37 +51,23 @@ function Board({
   );
   const [old, setOld] = useState(model),
     [notice, setNotice] = useState(() => nextNotice(null, model, ""));
-  const [panel, setPanel] = useState<PanelKind | null>(() =>
-      automaticSettlement(view) ? "settlement" : null,
-    ),
-    [page, setPage] = useState(0);
+  const [shown, setShown] = useState(() =>
+    nextPanel(null, view, { kind: null, page: 0 }),
+  );
+  const { kind: panel, page } = shown;
   if (old !== model) {
     setOld(model);
     setNotice(nextNotice(old, model, notice));
-    if (view.phase === "GAME_OVER" && old.view?.phase !== view.phase)
-      setPanel(null);
-    else if (
-      view.lastSettlement?.round !== old.view?.lastSettlement?.round &&
-      automaticSettlement(view)
-    ) {
-      setPanel("settlement");
-      setPage(0);
-    } else if (
-      panel === "settlement" &&
-      automaticSettlement(old.view) &&
-      !automaticSettlement(view)
-    )
-      setPanel(null);
+    setShown(nextPanel(old.view, view, shown));
   }
   const focusPanel = useRef(false),
     insidePanel = useRef(false);
   const open = (kind: PanelKind) => {
     focusPanel.current = !!root.current?.querySelector(".gc-panel :focus");
-    setPage(0);
-    setPanel(kind);
+    setShown({ kind, page: 0 });
   };
   const close = () => {
-    setPanel(null);
+    setShown({ kind: null, page: 0 });
     (caller.current ?? menu.current)?.focus();
   };
   const hand = handOrder(view.ownHand ?? [], view.maxNumber);
@@ -99,7 +79,9 @@ function Board({
     if (focusPanel.current) {
       focusPanel.current = false;
       root.current
-        ?.querySelector<HTMLButtonElement>(".gc-panel button:not(:disabled)")
+        ?.querySelector<HTMLButtonElement>(
+          ".gc-panel button:not([aria-disabled=true])",
+        )
         ?.focus();
     }
     const f = focused.current;
@@ -157,7 +139,10 @@ function Board({
       ? `R${view.round} 정산`
       : `${view.currentTurn === model.seatId ? "▶ 내 차례" : `${seatLabel(view.currentTurn)} 차례`} · ${view.tableHand ? "받기" : "선"}`;
   const clear =
-    !view.tableHand && last && view.currentTurn !== null
+    !view.tableHand &&
+    last &&
+    view.currentTurn !== null &&
+    view.currentTurn !== model.seatId
       ? `새 선 · ${seatLabel(view.currentTurn)}`
       : "";
   const selfText =
@@ -391,7 +376,7 @@ function Board({
               page={page}
               view={view}
               open={open}
-              setPage={setPage}
+              setPage={(n) => setShown({ kind: panel, page: n })}
               close={close}
             />
           )}

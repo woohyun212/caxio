@@ -37,6 +37,8 @@ import {
   locks,
   nextFocusSlot,
   nextNotice,
+  nextPanel,
+  type PanelState,
   passedSeats,
   requestTurn,
   seconds,
@@ -565,7 +567,7 @@ test("trick clear keeps a sorted text record and the next round retains settleme
     })),
   );
   expect(html).toContain("직전 제출 · 1번 · 싱글 · 구름 9");
-  expect(html).toContain("새 선 · 1번");
+  expect(html).toMatch(/class="gc-turn"[^>]*>▶ 내 차례 · 선</);
   expect(html).not.toContain('role="img"');
   const next = lastPlaySequence.continuing[4].view;
   expect(render(props(next))).not.toContain("직전 제출 ·");
@@ -886,4 +888,112 @@ test("create room uses the primary ink button on entry and final ranking", () =>
   );
   expect(style).toContain("color: var(--gc-paper)");
   expect(style).toContain("background: var(--gc-ink)");
+});
+
+test("trick clear marks my lead, names another leader and announces the new lead", () => {
+  const [, before, clear] = lastPlaySequence.continuing;
+  for (const [seatId, turn] of [
+    [0, "▶ 내 차례 · 선"],
+    [1, "새 선 · 1번"],
+  ] as const) {
+    const p = props(clear.view, { seatId });
+    expect(render(p).match(/class="gc-turn"[^>]*>([^<]+)</)?.[1]).toBe(turn);
+    expect(nextNotice(props(before.view, { seatId }).model, p.model, "")).toBe(
+      "패스 · 새 선 · 1번",
+    );
+  }
+});
+test("continuing and ending snapshots open, retain and close the settlement panel", () => {
+  const closed: PanelState = { kind: null, page: 0 },
+    opened: PanelState = { kind: "settlement", page: 0 };
+  function replay(
+    sequence:
+      | typeof lastPlaySequence.continuing
+      | typeof lastPlaySequence.ending,
+  ) {
+    let previous: PlayerView | null = null,
+      panel = closed;
+    return sequence.map(({ view }) => {
+      panel = nextPanel(previous, view, panel);
+      previous = view;
+      return panel;
+    });
+  }
+  expect(replay(lastPlaySequence.continuing)).toEqual([
+    closed,
+    closed,
+    closed,
+    opened,
+    opened,
+  ]);
+  expect(replay(lastPlaySequence.ending)).toEqual([closed, opened, closed]);
+  const [, , , paid, next] = lastPlaySequence.continuing;
+  const firstPlay = {
+    ...follow,
+    round: 2,
+    lastSettlement: next.view.lastSettlement,
+  };
+  expect(nextPanel(next.view, firstPlay, opened)).toEqual(closed);
+  expect(nextPanel(paid.view, { ...paid.view }, closed)).toEqual(closed);
+  expect(nextPanel(paid.view, next.view, closed)).toEqual(closed);
+  expect(nextPanel(next.view, firstPlay, closed)).toEqual(closed);
+  if (paid.view.phase !== "ROUND_SETTLEMENT")
+    throw Error("expected settlement fixture");
+  const newSettlement = {
+    ...paid.view,
+    round: 2,
+    lastSettlement: { round: 2, results: a4Settlement.results },
+  };
+  expect(nextPanel(firstPlay, newSettlement, closed)).toEqual(opened);
+  expect(
+    nextPanel(firstPlay, newSettlement, { kind: "rules", page: 2 }),
+  ).toEqual(opened);
+  const end = lastPlaySequence.ending[2].view;
+  expect(render(props(end))).toContain(">직전 정산</button>");
+  expect(nextPanel(end, end, opened)).toEqual(opened);
+});
+test("Tab order runs from status through the sorted hand and actions to settlement paging", () => {
+  const ownHand = lastPlaySequence.continuing[4].view.ownHand;
+  if (!ownHand) throw Error("expected a dealt hand");
+  const view = {
+    ...spectatorExamples.restored.view,
+    ownHand: ownHand.toReversed(),
+  };
+  if (!view.maxNumber) throw Error("expected round maximum");
+  const html = render(props(view, { selected: [] }));
+  const order = Array.from(
+    html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g),
+    ([, attrs, content]) => {
+      expect(attrs).not.toMatch(/\sdisabled(?:=|\s|$)|tabindex="-1"/i);
+      return attrs?.match(/aria-label="([^"]+)"/)?.[1] ?? content;
+    },
+  );
+  expect(order).toEqual([
+    "소리",
+    "메뉴",
+    ...handOrder(view.ownHand, view.maxNumber).map(tileName),
+    "제출 0장",
+    "패스",
+    "이전",
+    "다음",
+    "닫기",
+  ]);
+});
+test("entry leaves restoration to the client session", () => {
+  for (const connection of ["DISCONNECTED", "RESTORING"] as const) {
+    const html = render(props(null, { connection }));
+    expect(html).toContain(">방 만들기</button>");
+    expect(html).toContain(">입장</button>");
+    expect(html).not.toContain(">자리 복구</button>");
+    if (connection === "RESTORING") expect(html).toContain("자리 복구 중");
+  }
+});
+test("idle round phases use the server wait lock and a zero-two settlement shows the unit multiplier", () => {
+  const [, , , paid, next] = lastPlaySequence.continuing;
+  for (const { view } of [paid, next]) {
+    const html = render(props(view));
+    for (const action of ["submit", "pass"] as const)
+      expectLock(html, actionTag(html, action), "서버 응답 대기");
+  }
+  expect(render(props(paid.view))).toContain("남은 0장 × 1배(2가 0장) = 0");
 });
