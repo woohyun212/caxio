@@ -34,7 +34,6 @@ import { frame, palette } from "../visual/tokens";
 import { GameControls } from "./index";
 import { Action, EndScreen, Panel } from "./screens";
 import {
-  activate,
   automaticSettlement,
   clockText,
   describe,
@@ -48,6 +47,7 @@ import {
   passedSeats,
   requestTurn,
   seconds,
+  submitEntryCode,
   tileName,
 } from "./state";
 import { Tiles } from "./tiles";
@@ -1027,16 +1027,26 @@ test("entry leaves restoration to the client session", () => {
       expect(html.replace(/<[^>]+>/g, "").split(reason)).toHaveLength(2);
       expect(html).toMatch(new RegExp(`aria-live="polite"[^>]*>${reason}<`));
       const createRoom = mock(noop),
-        joinRoom = mock(noop),
         busy = outage(p.model);
       click(
         Action({ children: "방 만들기", reason: busy, onClick: createRoom }),
       );
-      activate(busy, () => enterCode(roomCode, joinRoom));
       expect(createRoom).not.toHaveBeenCalled();
-      expect(joinRoom).not.toHaveBeenCalled();
     }
   }
+});
+
+test("entry submit skips validation and dispatch while locked and validates unlocked room codes", () => {
+  const joinRoom = mock(noop);
+  const typed = `  ${roomCode.toLowerCase()}  `;
+  const locked = submitEntryCode("연결이 끊겼어요", typed, joinRoom);
+  expect(joinRoom).not.toHaveBeenCalled();
+  expect(locked).toBeUndefined();
+  expect(submitEntryCode("", "ABC", joinRoom)).toBe(false);
+  expect(joinRoom).not.toHaveBeenCalled();
+  expect(submitEntryCode("", typed, joinRoom)).toBe(true);
+  expect(joinRoom).toHaveBeenCalledTimes(1);
+  expect(joinRoom).toHaveBeenCalledWith(roomCode);
 });
 
 test("disconnected entry without a credential is silent and unlocked", () => {

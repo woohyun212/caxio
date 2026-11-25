@@ -2,7 +2,7 @@ import type { PlayerView } from "@caxio/shared/contracts/wire";
 import { type ReactNode, useRef, useState } from "react";
 import type { GameControlsProps } from "../contracts";
 import { seatLabel } from "../visual/layout";
-import { activate, enterCode, outage, type PanelKind } from "./state";
+import { activate, outage, type PanelKind, submitEntryCode } from "./state";
 
 export function Action({
   children,
@@ -60,7 +60,8 @@ export function Entry({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          activate(busy, () => setInvalid(!enterCode(code, joinRoom)));
+          const valid = submitEntryCode(busy, code, joinRoom);
+          if (valid !== undefined) setInvalid(!valid);
         }}
       >
         <label htmlFor="gc-code">방 코드</label>

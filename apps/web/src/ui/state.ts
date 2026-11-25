@@ -49,6 +49,14 @@ export function enterCode(input: string, join: (code: string) => void) {
   join(code);
   return true;
 }
+export function submitEntryCode(
+  reason: string,
+  input: string,
+  joinRoom: (code: string) => void,
+): boolean | undefined {
+  if (reason) return undefined;
+  return enterCode(input, joinRoom);
+}
 export function seconds(
   deadline: number | null,
   anchor: ClientModel["timeAnchor"],
