@@ -367,8 +367,11 @@
 .gc-wide .gc-panel {
   align-self: start;
   padding-block: 0;
-  width: 304px;
+  width: 100%;
   line-height: 12px;
+}
+.gc-wide :where([data-panel="settlement"]) > div:not(.gc-actions) {
+  padding-inline: 1px;
 }
 .gc-wide .gc-panel[data-panel="settlement"] {
   display: grid;

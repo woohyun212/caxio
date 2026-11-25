@@ -1332,3 +1332,12 @@ test("Galmuri11 positions its ink within the fixed lines and covered captions gi
     /\.gc-center\[data-covered="true"\],\s*\.gc-end:has\(~ \.gc-panel-slot\)\s*\{\s*visibility: hidden/,
   );
 });
+
+test("wide settlement rows leave ink room at either edge of the inner felt panel", () => {
+  expect(styleRule(".gc-wide .gc-panel")).toContain("width: 100%");
+  expect(
+    styleRule(
+      '.gc-wide :where([data-panel="settlement"]) > div:not(.gc-actions)',
+    ),
+  ).toContain("padding-inline: 1px");
+});
