@@ -25,8 +25,8 @@ end. Implement it exactly.
 | `apps/server` | `@caxio/server` | Authoritative game server on Bun (`Bun.serve`, WebSocket). Owns rooms, turn timers and hidden information. |
 | `apps/web` | `@caxio/web` | React + Vite client. Renders what the server sends and is never trusted. |
 
-Both apps link to the shared TypeScript source through the workspace, with no build step.
-Its three exports reserve these entry points:
+Both apps import shared TypeScript source only through its workspace exports, with no
+build step. Never use a relative path into `packages/shared/src` from an app.
 
 - `@caxio/shared` → `./src/index.ts`
 - `@caxio/shared/contracts/*` → `./src/contracts/*.ts`
@@ -37,11 +37,17 @@ Shared uses only ES2023 with no ambient types, so a Bun or DOM API in any produc
 module fails the shared check. Web uses DOM, JSX and Vite types with no Bun types.
 Each `tsconfig.test.json` adds Bun types and includes tests. The root
 `tsconfig.tools.json` checks host-side code in `tests/**` and `design/assets/**`
-along with the server entry.
+along with the server entry. There is no root `tsconfig.json`.
+
+Files under `tests/` and `design/assets/` belong to no workspace package. Bun's
+isolated linker exposes only root dependencies there. Import package source by
+relative path. Bare imports of workspace packages or app dependencies and JSX
+(which needs `react/jsx-runtime`) do not resolve there.
 
 The toolchain uses Bun 1.3 (package manager, runtime, test runner), TypeScript 7, Biome 2,
 Vite 8 and React 19. The web manifest pins Three.js 0.187, React Three Fiber 9 and
-Zustand 5. Check the installed version's docs before relying on an unfamiliar API or option.
+Zustand 5. These are newer than most training data: check the installed version's docs
+before relying on an API or option you are unsure of.
 
 ## Commands
 
@@ -63,8 +69,10 @@ fails or was not run, say so.
 
 - TypeScript is strict with `noUncheckedIndexedAccess`. Fix the type, do not silence it.
 - Tests sit next to the code as `*.test.ts` or `*.test.tsx` and import from `bun:test`.
-  Host-side tests that drive built or deployed output live under `tests/`. Each spec rule
-  the engine implements gets a test, including the edge cases the spec lists.
+  Host-side tests and probes (visual contract checks, the render check runner and the
+  deployment probe) live under `tests/`. Asset production scripts and their tests live
+  under `design/assets/`. Each spec rule the engine implements gets a test, including
+  the edge cases the spec lists.
 - The server re-validates every client action (whose turn, tile ownership, legal hand,
   beats the table) and sends each client only its own hand.
 - Never hardcode a port. The server reads `$PORT`; tests bind port `0`.
@@ -83,11 +91,13 @@ edits, merges and gate runs.
 
 - Stay inside your package's file fence. Implementation workers commit code and tests
   on their own branches in logical steps, run the standalone gate and leave the tree
-  clean. Workers do not push. Only integration packages may merge or rebase.
+  clean. Workers do not push or rebase onto another branch. Cross-branch work is
+  limited to the fixed-input integration merges and conflict handoffs below.
 - Root files follow the same fence rule. `workspace-cutover` owns `AGENTS.md`, `bun.lock`,
-  the root `package.json` and `tsconfig.tools.json`. Report any manifest or dependency
-  change to the orchestrator. It assigns edits to any `package.json` or `bun.lock`
-  exclusively to `workspace-cutover`, then resumes work from the new verified base.
+  the root `package.json` and `tsconfig.tools.json`. No other package edits any
+  `package.json` or `bun.lock`. Report a needed dependency or manifest change to the
+  orchestrator, who assigns it to `workspace-cutover` alone. Affected work resumes
+  from the new verified base.
   Leave unfenced files alone, including `tsconfig.base.json`, `biome.json`,
   `docs/lexio-rules.md` and `docs/design/`. Rules changes go through the owner.
 - If a frozen contract is wrong or missing, stop and report it. The orchestrator halts
@@ -100,9 +110,10 @@ edits, merges and gate runs.
 - On conflict, record the pre-merge HEAD, input SHA and unmerged paths
   (`git diff --name-only --diff-filter=U`), then run `git merge --abort`. The
   orchestrator assigns each path to its fence owner, who resolves it in their own
-  worktree, reruns the gate and submits a replacement SHA. Retry integration from
-  just before the earliest replaced input. If a clean merge fails a check, report
-  the failing SHA, command, exit code and evidence to the orchestrator for a fence-owner fix.
+  worktree from the two recorded SHAs, reruns the gate and submits a replacement SHA.
+  Retry integration from just before the earliest replaced input. If a clean merge fails
+  a check, report the failing SHA, command, exit code and evidence to the orchestrator
+  for a fence-owner fix.
 - The final `verify-release` pair checks the deployed image, browsers and devices
   with zero tracked edits. Record owner-only observations such as personal legibility
   and listening as unobserved. They do not block release.
