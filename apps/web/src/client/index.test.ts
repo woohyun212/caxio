@@ -132,14 +132,33 @@ test("accepted snapshots renew the monotonic anchor under either wall clock skew
 });
 
 test("tab mute persists independently and muted events never replay", () => {
+  const seeded = storage();
+  seeded.setItem("caxio.muted", "true");
+  expect(harness(seeded).session.getState().muted).toBe(true);
+
   const h = harness();
   expect(h.session.getState().muted).toBe(false);
   const [first, , , paid, next] = lastPlaySequence.continuing;
-  const s = h.enter(first);
-  const credential = h.saved.getItem(key);
+  const s = h.enter(deadlines.before);
+  const credential = required(h.saved.getItem(key));
   h.session.setMuted(true);
-  expect(h.saved.getItem(key)).toBe(credential);
+  expect(h.saved.values).toEqual(
+    new Map([
+      [key, credential],
+      ["caxio.muted", "true"],
+    ]),
+  );
   expect(harness(h.saved).session.getState().muted).toBe(true);
+  s.frame(deadlines.stale.after);
+  h.session.setMuted(false);
+  expect(harness(h.saved).session.getState().muted).toBe(false);
+  s.frame(first);
+  expect(h.effects.mock.calls).toEqual([
+    [[{ type: "PLAY", turnId: required(first.view.lastPlay).turnId }]],
+  ]);
+
+  h.effects.mockClear();
+  h.session.setMuted(true);
   s.frame(paid);
   h.session.setMuted(false);
   s.frame(next);
@@ -437,6 +456,12 @@ test("effect batches follow accepted identifiers and each connection starts sile
 test("OUT removes both private fields and selection; spectator restore rejects a survivor frame", () => {
   const f = spectatorExamples;
   const h = harness();
+  function expectPublicView(snapshot: Snapshot) {
+    const view = required(h.session.getState().view);
+    expect(view).toEqual(snapshot.view);
+    expect(Object.hasOwn(view, "ownHand")).toBe(false);
+    expect(Object.hasOwn(view, "ownSettlement")).toBe(false);
+  }
   const dealt = dealExamples[1];
   if (dealt.view.phase !== "ROUND_START" || !dealt.view.ownHand)
     throw Error("expected a dealt hand");
@@ -451,18 +476,19 @@ test("OUT removes both private fields and selection; spectator restore rejects a
   h.session.toggleTile(owned);
   expect(h.session.getState().selected).toEqual([owned]);
   s.frame(f.transition);
-  expect(h.session.getState().view).toEqual(f.transition.view);
+  expectPublicView(f.transition);
   expect(h.session.getState().selected).toEqual([]);
   s.frame(f.following);
+  expectPublicView(f.following);
   s.events.close();
   const retry = h.latest();
   retry.events.open();
   retry.frame(f.resume);
   retry.frame(f.restored);
-  expect(h.session.getState().view).toEqual(f.restored.view);
+  expectPublicView(f.restored);
   retry.frame(f.gameOver);
+  expectPublicView(f.gameOver);
   const before = h.session.getState();
-  expect(before.view).toEqual(f.gameOver.view);
   const calls = h.effects.mock.calls.length;
   retry.frame(f.survivor.frame);
   expect(h.session.getState()).toEqual({
