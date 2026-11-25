@@ -526,13 +526,6 @@
 .gc-compact .gc-end {
   grid-area: center;
 }
-.gc-compact .gc-center {
-  display: flex;
-  flex-direction: column;
-  height: 104px;
-  align-self: start;
-  overflow: auto;
-}
 .gc-center[data-covered="true"],
 .gc-end:has(~ .gc-panel-slot) {
   visibility: hidden;
@@ -552,15 +545,6 @@
 .gc-compact .gc-table {
   min-height: 80px;
   width: 100%;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  justify-content: safe center;
-  flex-shrink: 0;
-  margin-block: 0;
-}
-.gc-compact .gc-table:empty {
-  flex: 1;
-  min-height: 0;
 }
 .gc-compact .gc-hand {
   grid-area: hand;
@@ -599,8 +583,9 @@
   min-width: 60px;
 }
 .gc-compact .gc-panel-slot:has([data-panel="menu"], [data-panel="settlement"]) {
-  height: 104px;
-  align-self: start;
+  /* The covered caption and tile rows still size this grid area. */
+  position: absolute;
+  inset: 0;
 }
 .gc-compact .gc-panel[data-panel="settlement"] {
   display: grid;

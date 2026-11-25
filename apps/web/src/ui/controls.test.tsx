@@ -1291,7 +1291,7 @@ test("a returned seat announces only an unseen automatic action from this docume
   }
 });
 
-test("compact settlement pages fit the 104px center and visit every public row and the recipient's detail", () => {
+test("compact settlement pages fill the natural center and visit every public row and the recipient's detail", () => {
   const view = lastPlaySequence.continuing[3].view;
   const texts = [
     "1위 1번 +3칩 → 67칩",
@@ -1317,7 +1317,21 @@ test("compact settlement pages fit the 104px center and visit every public row a
     expect(html).toMatch(/이전.*다음.*닫기/);
   }
   expect(render(props(view, {}, 1))).not.toContain(texts[1] ?? "");
-  expect(styleRule(".gc-compact .gc-center")).toContain("height: 104px");
+  expect(styleRule(".gc-compact .gc-table")).toMatch(
+    /^ {2}min-height: 80px;$/m,
+  );
+  expect(css).toMatch(
+    /\.gc-compact \.gc-table,\s*\.gc-compact \.gc-hand\s*\{[^}]*\bflex-wrap: wrap;/,
+  );
+  const overlay = styleRule(
+    '.gc-compact .gc-panel-slot:has([data-panel="menu"], [data-panel="settlement"])',
+  );
+  expect(overlay).toMatch(/^ {2}position: absolute;$/m);
+  expect(overlay).toMatch(/^ {2}inset: 0;$/m);
+  expect(overlay).not.toMatch(/(?:^|\n)\s*(?:min-|max-)?height:/);
+  expect(css).not.toMatch(
+    /\.gc-compact \.gc-center\s*\{[^}]*\b(?:height|overflow):/,
+  );
   expect(styleRule('.gc-compact .gc-panel[data-panel="settlement"]')).toContain(
     "grid-template-rows: 44px 1fr",
   );
