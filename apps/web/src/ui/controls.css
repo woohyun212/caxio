@@ -439,6 +439,10 @@
 .gc-short {
   display: none;
 }
+/* Keep seven 48px slots and six 2px gaps while a 360px viewport sheds its scrollbar. */
+:root:has(.gc-compact) {
+  scrollbar-width: thin;
+}
 .gc-compact {
   width: 100%;
   font-size: 24px;

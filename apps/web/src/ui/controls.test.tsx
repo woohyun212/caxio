@@ -1259,7 +1259,7 @@ test("compact deals keep the full sentence as the accessible name of the shorter
   for (const { view } of dealExamples) {
     const count = view.ownHand?.length;
     const full = `R1 · 숫자 1~${view.maxNumber} · ${count}장씩 · 선 1번(구름 3)`;
-    const short = `R1 1~${view.maxNumber} ${count}장씩 선 1번(구름3)`;
+    const short = `R1 1~${view.maxNumber} ${count}장씩 선 1번 구름3`;
     expect(render(props(view, {}, 1))).toContain(
       `role="note" aria-label="${full}">${short}</span>`,
     );
@@ -1340,4 +1340,10 @@ test("wide settlement rows leave ink room at either edge of the inner felt panel
       '.gc-wide :where([data-panel="settlement"]) > div:not(.gc-actions)',
     ),
   ).toContain("padding-inline: 1px");
+});
+
+test("compact controls preserve room for seven hand slots during vertical scrollbar reflow", () => {
+  expect(styleRule(":root:has(.gc-compact)")).toContain(
+    "scrollbar-width: thin",
+  );
 });
