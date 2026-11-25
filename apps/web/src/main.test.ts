@@ -30,6 +30,7 @@ import {
   createScene,
   GameApp,
   listenForAudioUnlock,
+  listenForSeatRecovery,
   preview,
   startSession,
 } from "./main";
@@ -80,8 +81,12 @@ class Socket extends EventTarget {
 }
 
 function harness(origin = "https://game.test", restore = false) {
-  const socket = new Socket();
-  const connect = mock((_url: string) => socket);
+  const connect = mock((_url: string) => new Socket());
+  function socket(index = 0) {
+    const opened = connect.mock.results[index];
+    if (opened?.type !== "return") throw Error(`Missing socket ${index}`);
+    return opened.value;
+  }
   const audio = { play: mock(), unlock: mock(), dispose: mock() };
   const resume = mock();
   const create: CreateClientSession = (deps) => {
@@ -111,9 +116,9 @@ function harness(origin = "https://game.test", restore = false) {
   );
   function seated(snapshot: Snapshot, seatId = 0) {
     if (!restore) session.createRoom();
-    socket.dispatchEvent(new Event("open"));
-    socket.receive({ type: "SEATED", seatId, token: "testing", roomCode });
-    socket.receive(snapshot);
+    socket().dispatchEvent(new Event("open"));
+    socket().receive({ type: "SEATED", seatId, token: "testing", roomCode });
+    socket().receive(snapshot);
     expect(session.getState().view).toEqual(snapshot.view);
   }
   return { session, socket, connect, audio, resume, seated };
@@ -148,17 +153,106 @@ test("tab startup resumes once, derives both socket schemes and delivers only au
     expect(h.connect.mock.calls).toEqual([
       [`${restore ? "wss" : "ws"}://game.test/ws`],
     ]);
-    expect(h.socket.commands[0]?.type).toBe(restore ? "RESUME" : "CREATE_ROOM");
+    expect(h.socket().commands[0]?.type).toBe(
+      restore ? "RESUME" : "CREATE_ROOM",
+    );
     expect(h.audio.play).not.toHaveBeenCalled();
     h.session.setMuted(restore);
     for (const frame of later) {
-      h.socket.receive(frame);
-      h.socket.receive(frame);
+      h.socket().receive(frame);
+      h.socket().receive(frame);
     }
     expect(h.audio.play.mock.calls).toEqual(
       restore ? [] : [[effectBatches[3]]],
     );
   }
+});
+
+const recoveryEvents = ["online", "focus", "visibilitychange"] as const;
+function recoveryListeners(session: ClientSession) {
+  const page = new EventTarget();
+  const doc = new EventTarget();
+  let visible = true;
+  const cleanup = listenForSeatRecovery(page, doc, () => visible, session);
+  function dispatch(event: (typeof recoveryEvents)[number], isVisible = true) {
+    visible = isVisible;
+    (event === "visibilitychange" ? doc : page).dispatchEvent(new Event(event));
+  }
+  return { dispatch, cleanup };
+}
+
+for (const trigger of [...recoveryEvents, "cleanup"] as const) {
+  test(
+    trigger === "cleanup"
+      ? "cleanup removes all seat recovery listeners"
+      : `${trigger} resumes the same seat after an exhausted retry`,
+    () => {
+      const h = harness();
+      const { dispatch, cleanup } = recoveryListeners(h.session);
+      const snapshot = phaseExamples[2];
+      h.seated(snapshot);
+      const credential = h.session.getState().credential;
+      expect(credential).toEqual({ roomCode, token: "testing" });
+      h.socket(0).dispatchEvent(new Event("close"));
+      expect(h.session.getState().connection).toBe("RESTORING");
+      expect(h.connect).toHaveBeenCalledTimes(2);
+      for (const event of recoveryEvents) dispatch(event);
+      expect(h.resume).toHaveBeenCalledTimes(1); // Startup only during the in-flight retry.
+      h.socket(1).dispatchEvent(new Event("close"));
+      expect(h.session.getState()).toMatchObject({
+        connection: "DISCONNECTED",
+        view: null,
+        credential,
+      });
+      expect(h.connect).toHaveBeenCalledTimes(2);
+      if (trigger === "cleanup") {
+        cleanup();
+        for (const event of recoveryEvents) dispatch(event);
+        expect(h.connect).toHaveBeenCalledTimes(2);
+        return;
+      }
+      dispatch("visibilitychange", false);
+      expect(h.connect).toHaveBeenCalledTimes(2);
+      dispatch(trigger);
+      expect(h.connect).toHaveBeenCalledTimes(3);
+      const recovered = h.socket(2);
+      recovered.dispatchEvent(new Event("open"));
+      expect(recovered.commands).toEqual([
+        { type: "RESUME", roomCode, token: "testing" },
+      ]);
+      recovered.receive({
+        type: "SEATED",
+        roomCode,
+        token: "testing",
+        seatId: 0,
+      });
+      recovered.receive(snapshot);
+      expect(h.session.getState()).toMatchObject({
+        connection: "CONNECTED",
+        view: snapshot.view,
+        credential,
+      });
+      cleanup();
+    },
+  );
+}
+
+test("page recovery events preserve connected errors and skip sessions without credentials", () => {
+  const h = harness();
+  const { dispatch, cleanup } = recoveryListeners(h.session);
+  for (const event of recoveryEvents) dispatch(event);
+  expect(h.resume).toHaveBeenCalledTimes(1);
+  expect(h.connect).not.toHaveBeenCalled();
+
+  h.seated(phaseExamples[2]);
+  h.socket().receive({ type: "ERROR", code: "NOT_HIGHER" });
+  for (const event of recoveryEvents) {
+    dispatch(event);
+    expect(h.session.getState().errorCode).toBe("NOT_HIGHER");
+  }
+  expect(h.resume).toHaveBeenCalledTimes(1);
+  expect(h.connect).toHaveBeenCalledTimes(1);
+  cleanup();
 });
 
 test("blocked tab storage still permits startup and room creation", () => {
@@ -302,15 +396,17 @@ for (const path of [
       expect(html).toContain(part);
     clickAction(h.session, "play");
     expect(h.session.getState().pending?.type).toBe("PLAY");
-    h.socket.receive({ type: "ERROR", code: "NOT_HIGHER" });
+    h.socket().receive({ type: "ERROR", code: "NOT_HIGHER" });
     expect(h.session.getState().pending).toBeNull();
     expect(h.session.getState().selected).toEqual([h.tile]);
     expect(markup(h.session, scene)).toContain(errorText("NOT_HIGHER"));
     clickAction(h.session, "pass");
-    expect(h.socket.commands.slice(-2).map((c) => c.type)).toEqual([
-      "PLAY",
-      "PASS",
-    ]);
+    expect(
+      h
+        .socket()
+        .commands.slice(-2)
+        .map((c) => c.type),
+    ).toEqual(["PLAY", "PASS"]);
   });
 }
 
