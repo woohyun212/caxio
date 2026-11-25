@@ -173,11 +173,6 @@ function Board({
     [lock.hand, lock.play, lock.pass].find(
       (reason) => reason && reasonId(reason) === "gc-extra",
     );
-  const explanation = extra && (
-    <aside id="gc-extra" className="gc-extra">
-      {extra}
-    </aside>
-  );
   const time = left === null ? "" : clockText(left);
   const forecast = view.tableHand ? "초과 시 패스" : "초과 시 최저 1장";
   const action = (kind: "play" | "pass") =>
@@ -281,7 +276,6 @@ function Board({
             {caption}
           </span>
           <Tiles tiles={center} slots={layout.table} mode={mode} />
-          {!wide && !panel && explanation}
         </div>
         {wide && opaque && (
           <span
@@ -377,7 +371,12 @@ function Board({
           }}
         />
       )}
-      {(panel || (wide && extra)) && (
+      {extra && (
+        <span id="gc-extra" hidden>
+          {extra}
+        </span>
+      )}
+      {panel && (
         <div
           className="gc-panel-slot"
           style={
@@ -386,17 +385,14 @@ function Board({
               : undefined
           }
         >
-          {explanation}
-          {panel && (
-            <Panel
-              kind={panel}
-              page={page}
-              view={view}
-              open={open}
-              setPage={(n) => setShown({ kind: panel, page: n })}
-              close={close}
-            />
-          )}
+          <Panel
+            kind={panel}
+            page={page}
+            view={view}
+            open={open}
+            setPage={(n) => setShown({ kind: panel, page: n })}
+            close={close}
+          />
         </div>
       )}
     </fieldset>

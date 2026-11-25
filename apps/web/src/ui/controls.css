@@ -591,20 +591,3 @@
   padding: 0;
   min-width: 0;
 }
-.gc-extra {
-  background: var(--gc-sage);
-  color: var(--gc-ink);
-  text-align: center;
-  align-self: start;
-}
-.gc-wide .gc-extra {
-  line-height: 12px;
-}
-
-.gc-panel-slot:has(.gc-extra):has(.gc-panel) {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-.gc-compact .gc-center:has(.gc-table:empty) .gc-extra {
-  position: relative;
-  margin-top: -24px;
-}

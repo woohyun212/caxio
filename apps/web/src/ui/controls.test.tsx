@@ -1240,3 +1240,17 @@ test("wide caption expands in height inside the felt for a five-tile previous pl
     "직전 제출 · 3번 · 스트레이트 플러시 · 구름 11, 구름 12, 구름 13, 구름 14, 구름 15",
   );
 });
+
+test("a deal takes the message row while the opponent lock remains a control description", () => {
+  const reason = "내 차례를 기다려 주세요";
+  for (const k of [1, 3]) {
+    const html = render(props(dealExamples[0].view, { seatId: 1 }, k));
+    expectLock(html, actionTag(html, "submit"), "서버 응답 대기");
+    expect(html).toMatch(/id="gc-extra" hidden="">서버 응답 대기</);
+    const opponent = render(
+      props({ ...follow, currentTurn: 1 }, { errorCode: "INVALID_MESSAGE" }, k),
+    );
+    expectLock(opponent, actionTag(opponent, "pass"), reason);
+    expect(opponent).toContain(`id="gc-extra" hidden="">${reason}<`);
+  }
+});
