@@ -134,8 +134,10 @@ export function passedSeats(view: PlayerView) {
   }
   return passed;
 }
-export function dealText(view: PlayerView) {
+export function dealText(view: PlayerView, compact = false) {
   if (view.currentTurn === null) return "";
+  if (compact)
+    return `R${view.round} 1~${view.maxNumber} ${view.slots[view.currentTurn]?.remainingTileCount}장씩 선 ${seatLabel(view.currentTurn)}(구름3)`;
   return `R${view.round} · 숫자 1~${view.maxNumber} · ${view.slots[view.currentTurn]?.remainingTileCount}장씩 · 선 ${seatLabel(view.currentTurn)}(구름 3)`;
 }
 export function nextNotice(

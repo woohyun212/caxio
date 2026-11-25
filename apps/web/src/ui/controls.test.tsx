@@ -1254,3 +1254,15 @@ test("a deal takes the message row while the opponent lock remains a control des
     expect(opponent).toContain(`id="gc-extra" hidden="">${reason}<`);
   }
 });
+
+test("compact deals keep the full sentence as the accessible name of the shorter notice", () => {
+  for (const { view } of dealExamples) {
+    const count = view.ownHand?.length;
+    const full = `R1 · 숫자 1~${view.maxNumber} · ${count}장씩 · 선 1번(구름 3)`;
+    const short = `R1 1~${view.maxNumber} ${count}장씩 선 1번(구름3)`;
+    expect(render(props(view, {}, 1))).toContain(
+      `role="note" aria-label="${full}">${short}</span>`,
+    );
+    expect(render(props(view))).toContain(`id="gc-live-text">${full}</span>`);
+  }
+});

@@ -14,6 +14,7 @@ import { frame, palette, sceneZones, stage, tile } from "../visual/tokens";
 import { Action, EndScreen, Entry, Lobby, Panel } from "./screens";
 import {
   clockText,
+  dealText,
   describe,
   locks,
   nextFocusSlot,
@@ -160,6 +161,7 @@ function Board({
     (model.errorCode !== null
       ? errorText(model.errorCode)
       : notice || (out || end ? "" : lock.standing));
+  const compactDeal = !wide && message && message === dealText(view);
   const summary = describe(result);
   const reasonId = (reason: string) =>
     reason === message
@@ -312,7 +314,13 @@ function Board({
             notice && message === notice ? view.lastAction?.turnId : "status"
           }
         >
-          {message}
+          {compactDeal ? (
+            <span role="note" aria-label={message}>
+              {dealText(view, true)}
+            </span>
+          ) : (
+            message
+          )}
         </span>
       </div>
       <div className="gc-command">
