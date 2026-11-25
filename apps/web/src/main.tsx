@@ -212,6 +212,30 @@ export function listenForAudioUnlock(
   return () => listeners.abort();
 }
 
+export function listenForSeatRecovery(
+  windowTarget: EventTarget,
+  documentTarget: EventTarget,
+  isVisible: () => boolean,
+  session: ClientSession,
+) {
+  const listeners = new AbortController();
+  const options = { signal: listeners.signal };
+  function resumeIfDisconnected() {
+    const { connection, credential } = session.getState();
+    if (connection === "DISCONNECTED" && credential) session.resume();
+  }
+  windowTarget.addEventListener("online", resumeIfDisconnected, options);
+  windowTarget.addEventListener("focus", resumeIfDisconnected, options);
+  documentTarget.addEventListener(
+    "visibilitychange",
+    () => {
+      if (isVisible()) resumeIfDisconnected();
+    },
+    options,
+  );
+  return () => listeners.abort();
+}
+
 function bootstrap(element: HTMLElement) {
   document.body.style.margin = "0";
   document.body.style.backgroundColor = `rgb(${palette.ink.join(",")})`;
@@ -227,6 +251,12 @@ function bootstrap(element: HTMLElement) {
     audio,
   );
   const stopAudioUnlock = listenForAudioUnlock(window, audio);
+  const stopSeatRecovery = listenForSeatRecovery(
+    window,
+    document,
+    () => document.visibilityState === "visible",
+    session,
+  );
   const scene = createScene();
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const root = createRoot(element);
@@ -247,6 +277,7 @@ function bootstrap(element: HTMLElement) {
     window.removeEventListener("resize", render);
     motion.removeEventListener("change", render);
     stopAudioUnlock();
+    stopSeatRecovery();
     root.unmount();
     session.dispose();
     audio.dispose();
