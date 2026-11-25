@@ -152,6 +152,11 @@ test("tab mute persists independently and muted events never replay", () => {
   s.frame(deadlines.stale.after);
   h.session.setMuted(false);
   expect(harness(h.saved).session.getState().muted).toBe(false);
+  s.frame({
+    ...deadlines.stale.after,
+    revision: deadlines.stale.after.revision + 1,
+  });
+  expect(h.effects).not.toHaveBeenCalled();
   s.frame(first);
   expect(h.effects.mock.calls).toEqual([
     [[{ type: "PLAY", turnId: required(first.view.lastPlay).turnId }]],
