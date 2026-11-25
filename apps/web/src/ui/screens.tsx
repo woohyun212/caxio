@@ -2,7 +2,7 @@ import type { PlayerView } from "@caxio/shared/contracts/wire";
 import { type ReactNode, useRef, useState } from "react";
 import type { GameControlsProps } from "../contracts";
 import { seatLabel } from "../visual/layout";
-import { activate, enterCode, outage, type PanelKind } from "./state";
+import { activate, outage, type PanelKind, submitEntryCode } from "./state";
 
 export function Action({
   children,
@@ -45,6 +45,7 @@ export function Entry({
     (model.pending || model.connection === "CONNECTING"
       ? "서버 응답 대기"
       : "");
+  const notice = message || (invalid ? "6자리 방 코드를 확인해 주세요." : busy);
   return (
     <div className="gc-entry">
       <h1>caxio</h1>
@@ -59,7 +60,8 @@ export function Entry({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!busy) setInvalid(!enterCode(code, joinRoom));
+          const valid = submitEntryCode(busy, code, joinRoom);
+          if (valid !== undefined) setInvalid(!valid);
         }}
       >
         <label htmlFor="gc-code">방 코드</label>
@@ -82,9 +84,12 @@ export function Entry({
           입장
         </button>
       </form>
-      <div id="gc-entry-status">{busy}</div>
-      <div aria-live="polite">
-        {message || (invalid ? "6자리 방 코드를 확인해 주세요." : "") || busy}
+      {busy && busy !== notice && <div id="gc-entry-status">{busy}</div>}
+      <div
+        id={busy === notice ? "gc-entry-status" : undefined}
+        aria-live="polite"
+      >
+        {notice}
       </div>
     </div>
   );

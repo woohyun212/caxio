@@ -49,6 +49,14 @@ export function enterCode(input: string, join: (code: string) => void) {
   join(code);
   return true;
 }
+export function submitEntryCode(
+  reason: string,
+  input: string,
+  joinRoom: (code: string) => void,
+): boolean | undefined {
+  if (reason) return undefined;
+  return enterCode(input, joinRoom);
+}
 export function seconds(
   deadline: number | null,
   anchor: ClientModel["timeAnchor"],
@@ -68,7 +76,11 @@ export function clockText(left: number) {
 }
 export function outage(model: ClientModel) {
   if (model.connection === "RESTORING") return "자리 복구 중";
-  if (model.view && model.connection !== "CONNECTED") return "연결이 끊겼어요";
+  if (
+    (model.view && model.connection !== "CONNECTED") ||
+    (model.credential && model.connection === "DISCONNECTED")
+  )
+    return "연결이 끊겼어요";
   return "";
 }
 export function locks(
