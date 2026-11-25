@@ -465,6 +465,8 @@
 }
 .gc-compact .gc-status button {
   min-width: 44px;
+  background: var(--gc-pine);
+  color: var(--gc-paper);
 }
 .gc-compact .gc-long {
   display: none;

@@ -763,6 +763,21 @@ function styleRule(selector: string) {
   return css.slice(start, css.indexOf("}", start));
 }
 
+test("compact sound and menu buttons use paper on pine in both sound states", () => {
+  const buttons = styleRule(".gc-compact .gc-status button");
+  expect(buttons).toContain("background: var(--gc-pine)");
+  expect(buttons).toContain("color: var(--gc-paper)");
+  for (const muted of [false, true]) {
+    const status = render(props(follow, { muted }, 0)).match(
+      /<header[^>]*>(.*?)<\/header>/,
+    )?.[1];
+    expect(status).toContain(
+      `aria-pressed="${muted}">${muted ? "무음" : "소리"}</button>`,
+    );
+    expect(status).toContain(">메뉴</button>");
+  }
+});
+
 test("wide HUD and command cells occupy their exact horizontal intervals", () => {
   const cells = (selector: string, indices: number[]) => {
     const rule = styleRule(selector),
