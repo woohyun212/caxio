@@ -144,7 +144,7 @@ function integer(
   return safeInteger(v) && v >= min && v <= max;
 }
 function record(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
+  return typeof v === "object" && v !== null;
 }
 function onlyKeys(v: Record<string, unknown>, fields: readonly string[]) {
   return Object.keys(v).every((key) => fields.includes(key));

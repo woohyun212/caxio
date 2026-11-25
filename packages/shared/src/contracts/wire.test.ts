@@ -68,6 +68,7 @@ test("six normal text commands and structural limits", () => {
     [],
     1,
     { type: "RESUME", roomCode: fixtures.roomCode, token: "" },
+    { type: "RESUME", roomCode: fixtures.roomCode, token: ["x"] },
     { type: "PLAY", turnId: 2 },
     { type: "UNKNOWN" },
   ])

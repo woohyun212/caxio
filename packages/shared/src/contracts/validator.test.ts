@@ -48,6 +48,7 @@ test("message envelopes reject malformed, unbound and misdirected data", () => {
     [],
     { type: "OTHER" },
     { type: "ERROR", code: "unknown" },
+    { type: "ERROR", code: ["ROOM_FULL"] },
     { type: "ERROR", code: "NOT_SEATED", private: 1 },
     { ...active, revision: -1 },
     { ...active, serverNow: "1" },
@@ -58,6 +59,7 @@ test("message envelopes reject malformed, unbound and misdirected data", () => {
   const seated = seatReuse.credentials.A;
   for (const v of [
     { ...seated, token: "" },
+    { ...seated, token: ["x"] },
     { ...seated, seatId: 5 },
     { ...seated, roomCode: "bad" },
     { ...seated, hand: [] },
@@ -92,6 +94,9 @@ test("slots, order, lobby authority and idle fields", () => {
     { hostSeatId: 1 },
   ]);
   checkPatches(seatReuse.joins[0], 0, [{ canStart: true }]);
+  checkPatches(seatReuse.joins[1], 0, [
+    { seatOrder: [0, 1, 1], canStart: true },
+  ]);
   if (lobby.view.phase !== "LOBBY") throw Error("missing lobby");
   checkPatches({ ...lobby, view: { ...lobby.view, canStart: false } }, 1, [
     { canStart: true },
