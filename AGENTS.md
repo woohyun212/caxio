@@ -21,18 +21,27 @@ end. Implement it exactly.
 
 | Path | Package | Role |
 | --- | --- | --- |
-| `packages/engine` | `@caxio/engine` | Pure rules engine. No I/O, timers, DOM, Node or Bun APIs, and no hidden randomness (the caller supplies it). Runs unchanged in the server and the browser. |
+| `packages/shared` | `@caxio/shared` | Domain types, wire contracts and the pure rules engine. No I/O, timers, DOM, Node or Bun APIs, and no hidden randomness (the caller supplies it). Runs unchanged in the server and the browser. |
 | `apps/server` | `@caxio/server` | Authoritative game server on Bun (`Bun.serve`, WebSocket). Owns rooms, turn timers and hidden information. |
 | `apps/web` | `@caxio/web` | React + Vite client. Renders what the server sends and is never trusted. |
 
-Apps import the engine as `@caxio/engine`. It is a workspace link to the TypeScript source
-(`packages/engine/src/index.ts`), so there is no build step between packages, and each
-app's typecheck also checks the engine files it imports. That is what keeps the engine
-portable: a Bun API in the engine fails the web typecheck, a DOM API fails the server one.
+Both apps link to the shared TypeScript source through the workspace, with no build step.
+Its three exports reserve these entry points:
 
-Toolchain: Bun 1.3 (package manager, runtime, test runner), TypeScript 7, Biome 2, Vite 8,
-React 19. These are newer than most training data: check the installed version's docs
-before relying on an API or option you are unsure of.
+- `@caxio/shared` → `./src/index.ts`
+- `@caxio/shared/contracts/*` → `./src/contracts/*.ts`
+- `@caxio/shared/hands` → `./src/hands/index.ts`
+
+In both shared and web, `tsconfig.json` checks all production source and excludes tests.
+Shared uses only ES2023 with no ambient types, so a Bun or DOM API in any production
+module fails the shared check. Web uses DOM, JSX and Vite types with no Bun types.
+Each `tsconfig.test.json` adds Bun types and includes tests. The root
+`tsconfig.tools.json` checks host-side code in `tests/**` and `design/assets/**`
+along with the server entry.
+
+The toolchain uses Bun 1.3 (package manager, runtime, test runner), TypeScript 7, Biome 2,
+Vite 8 and React 19. The web manifest pins Three.js 0.187, React Three Fiber 9 and
+Zustand 5. Check the installed version's docs before relying on an unfamiliar API or option.
 
 ## Commands
 
@@ -41,7 +50,7 @@ bun install          # once per checkout or worktree
 bun run check        # the gate: lint, typecheck, test, build
 bun run lint         # Biome lint + format check
 bun run format       # apply Biome fixes and formatting
-bun run typecheck    # tsc --noEmit in every package (there is no root tsconfig.json)
+bun run typecheck    # each package (production and test configs for shared/web), then root tools
 bun test             # every *.test.ts(x), using bun:test
 bun run build        # production build of apps/web
 bun run dev          # server (watch mode) + Vite dev server
@@ -53,28 +62,50 @@ fails or was not run, say so.
 ## Conventions
 
 - TypeScript is strict with `noUncheckedIndexedAccess`. Fix the type, do not silence it.
-- Tests sit next to the code as `*.test.ts` and import from `bun:test`. Each spec rule the
-  engine implements gets a test, including the edge cases the spec lists.
+- Tests sit next to the code as `*.test.ts` or `*.test.tsx` and import from `bun:test`.
+  Host-side tests that drive built or deployed output live under `tests/`. Each spec rule
+  the engine implements gets a test, including the edge cases the spec lists.
 - The server re-validates every client action (whose turn, tile ownership, legal hand,
   beats the table) and sends each client only its own hand.
 - Never hardcode a port. The server reads `$PORT`; tests bind port `0`.
 - Markdown is not auto-formatted. Everything else is formatted by Biome: run
   `bun run format` instead of formatting by hand.
-- Commits follow Conventional Commits, scoped by package: `feat(engine): ...`,
+- Commits follow Conventional Commits, scoped by package: `feat(shared): ...`,
   `fix(server): ...`, `chore: ...`.
 
 ## Working in parallel worktrees
 
-Work is split across git worktrees, one agent per worktree, and an orchestrator merges
-the branches. To keep merges clean:
+Each implementation, integration and release verification package gets its own worktree
+and one pair, a Claude Code coordinator and a Codex worker. Start packages with disjoint
+file ownership together from the same base SHA. The orchestrator splits and assigns work,
+reviews evidence, fast-forwards `main` to a verified SHA and pushes it. Workers own file
+edits, merges and gate runs.
 
-- Stay inside the files your brief assigns. Do not edit files fenced to another worktree.
-- Root files (`package.json`, `biome.json`, `tsconfig.base.json`, `AGENTS.md`,
-  `docs/lexio-rules.md`) belong to the orchestrator. Ask in your summary instead of
-  editing them.
-- Avoid new dependencies. If one is truly needed, add it to your own package (not the
-  root), commit the `bun.lock` change with it, and call it out in your final summary.
-- Commit to your own branch in logical steps and leave the tree clean. Do not push, merge
-  or rebase onto another feature branch.
-- End with a summary: commits, gate output, assumptions you made, and the manual checks
-  the orchestrator should run.
+- Stay inside your package's file fence. Implementation workers commit code and tests
+  on their own branches in logical steps, run the standalone gate and leave the tree
+  clean. Workers do not push. Only integration packages may merge or rebase.
+- Root files follow the same fence rule. `workspace-cutover` owns `AGENTS.md`, `bun.lock`,
+  the root `package.json` and `tsconfig.tools.json`. Report any manifest or dependency
+  change to the orchestrator. It assigns edits to any `package.json` or `bun.lock`
+  exclusively to `workspace-cutover`, then resumes work from the new verified base.
+  Leave unfenced files alone, including `tsconfig.base.json`, `biome.json`,
+  `docs/lexio-rules.md` and `docs/design/`. Rules changes go through the owner.
+- If a frozen contract is wrong or missing, stop and report it. The orchestrator halts
+  affected work and assigns the fix and re-verification to the contract owner. Use the
+  verified contract instead of defining a local substitute.
+- Each wave ends with an integration pair. From the wave base, merge the fixed input
+  SHAs in order with `git -c rerere.enabled=false merge --no-edit <sha>`. Plan zero
+  tracked-file edits. Verify each input is an ancestor of HEAD, then run
+  `bun install --frozen-lockfile`, `bun run check` and the wave checks.
+- On conflict, record the pre-merge HEAD, input SHA and unmerged paths
+  (`git diff --name-only --diff-filter=U`), then run `git merge --abort`. The
+  orchestrator assigns each path to its fence owner, who resolves it in their own
+  worktree, reruns the gate and submits a replacement SHA. Retry integration from
+  just before the earliest replaced input. If a clean merge fails a check, report
+  the failing SHA, command, exit code and evidence to the orchestrator for a fence-owner fix.
+- The final `verify-release` pair checks the deployed image, browsers and devices
+  with zero tracked edits. Record owner-only observations such as personal legibility
+  and listening as unobserved. They do not block release.
+- Report commits and full HEAD SHA, commands with exit codes and test counts,
+  assumptions and anything unverified. Integration reports also include the base SHA,
+  input SHAs and clean status.
