@@ -749,3 +749,99 @@ test("a click at the deadline cannot send an action rendered enabled earlier", (
   );
   expect(send).not.toHaveBeenCalled();
 });
+
+function styleRule(selector: string) {
+  const start = css.indexOf(`${selector} {`);
+  if (start < 0) throw Error(`missing CSS rule ${selector}`);
+  return css.slice(start, css.indexOf("}", start));
+}
+
+test("wide HUD and command cells occupy their exact horizontal intervals", () => {
+  const cells = (selector: string, indices: number[]) => {
+    const rule = styleRule(selector),
+      tracks = rule
+        .match(/grid-template-columns: ([^;]+);/)?.[1]
+        ?.split(" ")
+        .map((n) => Number.parseInt(n, 10));
+    if (!tracks) throw Error("missing tracks");
+    const gap = Number.parseInt(
+        rule.match(/column-gap: (\d+)/)?.[1] ?? "0",
+        10,
+      ),
+      start = Number.parseInt(
+        rule.match(/padding-left: (\d+)/)?.[1] ?? "0",
+        10,
+      );
+    return indices.map((i) => [
+      start + tracks.slice(0, i).reduce((x, w) => x + w + gap, 0),
+      tracks[i],
+    ]);
+  };
+  expect(cells(".gc-wide .gc-status", [0, 1, 2, 3, 4, 6])).toEqual([
+    [1, 40],
+    [42, 99],
+    [142, 139],
+    [282, 42],
+    [325, 43],
+    [370, 44],
+  ]);
+  expect(styleRule(".gc-wide :where(.gc-status) button:last-child")).toContain(
+    "grid-column: 7",
+  );
+  expect(cells(".gc-wide .gc-command", [0, 2, 4, 6])).toEqual([
+    [2, 97],
+    [100, 140],
+    [243, 101],
+    [346, 68],
+  ]);
+});
+
+test("wide status text stays in its 16px row while k=2 buttons extend their hit height", () => {
+  const html = render(props(follow, {}, 2));
+  expect(html).toContain("--gc-status:16px");
+  expect(html).toContain("--gc-hit:22px");
+  expect(styleRule(".gc-wide .gc-status")).toContain(
+    "grid-template-rows: var(--gc-status)",
+  );
+  expect(styleRule(".gc-wide .gc-status button")).toContain(
+    "grid-template-rows: var(--gc-status)",
+  );
+});
+test("end screen keeps the full reason in the ranking and clears the message and command rows", () => {
+  const html = render(props(gameOverExamples[0].snapshot.view));
+  expect(html).toMatch(/class="gc-turn"[^>]*>대국 종료</);
+  expect(html).toContain("<strong>마지막 라운드 종료</strong>");
+  expect(styleRule(".gc-wide .gc-end").replace(/\s+/g, "")).toContain(
+    "bottom:calc(var(--gc-message)+var(--gc-command)+var(--gc-fallback-height))",
+  );
+});
+test("wide felt panels reserve the fallback notice and the panel shadow", () => {
+  expect(styleRule(".gc-wide .gc-opaque")).toContain(
+    "--gc-fallback-height: 14px",
+  );
+  expect(styleRule(".gc-wide .gc-panel-slot")).toContain(
+    "padding-bottom: calc(var(--gc-fallback-height) + 2px)",
+  );
+  const paid = lastPlaySequence.continuing[3].view;
+  expect(render({ ...props(paid), graphicsReady: false })).toContain(
+    "top:calc(144px - var(--gc-fallback-height))",
+  );
+  expect(
+    render({
+      ...props(gameOverExamples[0].snapshot.view),
+      graphicsReady: false,
+    }),
+  ).toContain("top:calc(196px - var(--gc-fallback-height))");
+});
+test("wide lobby fits all five seat columns and preserves whole seat words", () => {
+  expect(styleRule(".gc-wide .gc-lobby-seats")).toContain(
+    "grid-template-columns: repeat(5, 76px)",
+  );
+  expect(styleRule(".gc-wide .gc-lobby-seats")).toContain(
+    "word-break: keep-all",
+  );
+  expect(css).toMatch(/\.gc-wide \.gc-lobby \{\s*width: 412px;/);
+  expect(render(props(seatReuse.bDisconnected.view))).toContain(
+    "2번 복귀 대기",
+  );
+});

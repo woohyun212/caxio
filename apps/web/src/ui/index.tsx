@@ -231,7 +231,7 @@ function Board({
       >
         <span className="gc-brand">caxio</span>
         <span className="gc-turn" tabIndex={-1} ref={heading}>
-          {clear || turn}
+          {end ? "대국 종료" : clear || turn}
         </span>
         <span
           role="timer"
@@ -296,7 +296,9 @@ function Board({
         {wide && opaque && (
           <span
             className="gc-fallback"
-            style={{ top: layout.felt.y + layout.felt.h - 14 }}
+            style={{
+              top: `calc(${end ? frame.sceneHeight : layout.felt.y + layout.felt.h}px - var(--gc-fallback-height))`,
+            }}
           >
             그래픽을 사용할 수 없어 기본 화면으로 진행해요
           </span>

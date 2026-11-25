@@ -279,12 +279,14 @@
   padding: 8px;
 }
 .gc-wide .gc-lobby {
-  width: 404px;
+  width: 412px;
 }
 .gc-wide .gc-lobby-seats {
   display: grid;
   grid-template-columns: repeat(5, 76px);
   gap: 4px;
+  word-break: keep-all;
+  overflow-wrap: normal;
 }
 .gc-lobby-seats > div {
   background: var(--gc-pine);
@@ -296,8 +298,9 @@
   z-index: 2;
   display: grid;
   padding-left: 1px;
-  grid-template-columns: 40px 99px 139px 42px 43px 44px;
-  gap: 2px;
+  grid-template-columns: 40px 99px 139px 42px 43px 0 44px;
+  column-gap: 1px;
+  grid-template-rows: var(--gc-status);
   height: var(--gc-status);
   line-height: 12px;
 }
@@ -310,6 +313,12 @@
 .gc-wide .gc-time {
   grid-column: 3;
 }
+.gc-wide .gc-status button {
+  display: grid;
+  grid-template-rows: var(--gc-status);
+  align-items: center;
+  background: transparent;
+}
 .gc-wide .gc-status button,
 .gc-wide .gc-command button {
   align-self: start;
@@ -319,7 +328,7 @@
   grid-column: 5;
 }
 .gc-wide :where(.gc-status) button:last-child {
-  grid-column: 6;
+  grid-column: 7;
 }
 .gc-wide .gc-opaque .gc-scene::before {
   content: "";
@@ -331,12 +340,25 @@
 .gc-wide .gc-scene {
   height: var(--gc-scene);
 }
+.gc-wide .gc-board {
+  --gc-fallback-height: 0px;
+}
+.gc-wide .gc-opaque {
+  --gc-fallback-height: 14px;
+}
+.gc-wide .gc-panel-slot {
+  padding-bottom: calc(var(--gc-fallback-height) + 2px);
+  grid-template-rows: minmax(0, 1fr);
+}
+.gc-wide .gc-panel {
+  line-height: 12px;
+}
 .gc-wide .gc-fallback {
   position: absolute;
   left: 0;
   text-align: center;
   width: 100%;
-  line-height: 14px;
+  line-height: var(--gc-fallback-height);
 }
 .gc-wide .gc-message {
   height: var(--gc-message);
@@ -364,7 +386,12 @@
 .gc-wide .gc-end {
   position: absolute;
   top: calc(var(--gc-status) + 46px);
-  bottom: var(--gc-message);
+  bottom: calc(
+    var(--gc-message) +
+    var(--gc-command) +
+    var(--gc-fallback-height)
+  );
+  overflow: auto;
   left: 10%;
   right: 10%;
   padding: 4px;
