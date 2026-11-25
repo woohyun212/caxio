@@ -32,6 +32,7 @@ import {
   listenForAudioUnlock,
   listenForSeatRecovery,
   preview,
+  scheduleSeatRecovery,
   startSession,
 } from "./main";
 import { TableLifecycle } from "./table";
@@ -255,6 +256,123 @@ test("page recovery events preserve connected errors and skip sessions without c
   cleanup();
 });
 
+function recoveryClock() {
+  let now = 0;
+  const timers = new Map<() => void, number>();
+  return {
+    timers,
+    schedule(delay: number, callback: () => void) {
+      timers.set(callback, now + delay);
+      return () => timers.delete(callback);
+    },
+    advance(ms: number) {
+      now += ms;
+      for (const [callback, deadline] of timers) {
+        if (deadline <= now) {
+          timers.delete(callback);
+          callback();
+        }
+      }
+    },
+  };
+}
+
+test("seat recovery without a browser event backs off to eight seconds and resets after a snapshot", () => {
+  const h = harness();
+  const clock = recoveryClock();
+  const stop = scheduleSeatRecovery(h.session, clock.schedule);
+  h.seated(phaseExamples[2]);
+  function loseConnectionAndRetry() {
+    h.socket(h.connect.mock.calls.length - 1).dispatchEvent(new Event("close"));
+    expect(h.session.getState().connection).toBe("RESTORING");
+    expect(clock.timers.size).toBe(0);
+    h.socket(h.connect.mock.calls.length - 1).dispatchEvent(new Event("close"));
+    expect(h.session.getState().connection).toBe("DISCONNECTED");
+    expect(clock.timers.size).toBe(1);
+  }
+  function advanceToResume(delay: number) {
+    const count = h.connect.mock.calls.length;
+    clock.advance(delay - 1);
+    expect(h.connect).toHaveBeenCalledTimes(count);
+    clock.advance(1);
+    expect(h.connect).toHaveBeenCalledTimes(count + 1);
+    expect(clock.timers.size).toBe(0);
+    const socket = h.socket(count);
+    socket.dispatchEvent(new Event("open"));
+    expect(socket.commands).toEqual([
+      { type: "RESUME", roomCode, token: "testing" },
+    ]);
+    return socket;
+  }
+  for (const delay of [1000, 2000, 4000, 8000, 8000]) {
+    loseConnectionAndRetry();
+    advanceToResume(delay);
+  }
+  const restored = h.socket(h.connect.mock.calls.length - 1);
+  restored.receive({ type: "SEATED", seatId: 0, roomCode, token: "testing" });
+  restored.receive(phaseExamples[2]);
+  expect(h.session.getState().connection).toBe("CONNECTED");
+  expect(clock.timers.size).toBe(0);
+  loseConnectionAndRetry();
+  advanceToResume(1000);
+  stop();
+});
+
+test("seat recovery timers preserve errors while connected, restoring or without a credential", () => {
+  const h = harness();
+  const clock = recoveryClock();
+  const stop = scheduleSeatRecovery(h.session, clock.schedule);
+  function assertIdle(code: string | null) {
+    const count = h.connect.mock.calls.length;
+    const resumes = h.resume.mock.calls.length;
+    expect(clock.timers.size).toBe(0);
+    clock.advance(30000);
+    expect(h.connect).toHaveBeenCalledTimes(count);
+    expect(h.resume).toHaveBeenCalledTimes(resumes);
+    expect(h.session.getState().errorCode).toBe(code);
+  }
+  assertIdle(null);
+  h.seated(phaseExamples[2]);
+  h.socket().receive({ type: "ERROR", code: "NOT_HIGHER" });
+  assertIdle("NOT_HIGHER");
+  h.socket().dispatchEvent(new Event("close"));
+  h.socket(1).dispatchEvent(new Event("close"));
+  clock.advance(1000);
+  const restoring = h.socket(2);
+  restoring.dispatchEvent(new Event("open"));
+  restoring.receive("invalid frame");
+  expect(h.session.getState().connection).toBe("RESTORING");
+  assertIdle("INVALID_MESSAGE");
+  restoring.receive({ type: "ERROR", code: "RESUME_DENIED" });
+  expect(h.session.getState().credential).toBeNull();
+  assertIdle("RESUME_DENIED");
+  stop();
+});
+
+test("a focus retry cancels the pending timer and cleanup cancels future retries", () => {
+  const h = harness();
+  const clock = recoveryClock();
+  const stop = scheduleSeatRecovery(h.session, clock.schedule);
+  const events = recoveryListeners(h.session);
+  h.seated(phaseExamples[2]);
+  h.socket(0).dispatchEvent(new Event("close"));
+  h.socket(1).dispatchEvent(new Event("close"));
+  expect(clock.timers.size).toBe(1);
+  events.dispatch("focus");
+  expect(clock.timers.size).toBe(0);
+  clock.advance(20000);
+  expect(h.connect).toHaveBeenCalledTimes(3);
+  h.socket(2).dispatchEvent(new Event("close"));
+  h.socket(3).dispatchEvent(new Event("close"));
+  expect(clock.timers.size).toBe(1);
+  stop();
+  h.session.setMuted(true);
+  expect(clock.timers.size).toBe(0);
+  clock.advance(20000);
+  expect(h.connect).toHaveBeenCalledTimes(4);
+  events.cleanup();
+});
+
 test("blocked tab storage still permits startup and room creation", () => {
   const blocked = () => {
     throw Error("storage blocked");
@@ -454,4 +572,9 @@ test("entry preloads the same-origin Galmuri11 font", async () => {
   expect(html).toContain(
     '<link rel="preload" href="/fonts/Galmuri11.woff2" as="font" type="font/woff2" crossorigin="anonymous">',
   );
+});
+
+test("entry declares an empty favicon", async () => {
+  const html = await Bun.file(new URL("../index.html", import.meta.url)).text();
+  expect(html).toContain('<link rel="icon" href="data:,">');
 });

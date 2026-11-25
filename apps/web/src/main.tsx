@@ -13,6 +13,7 @@ import { createClientSession } from "./client";
 import type {
   AudioEffects,
   ClientDependencies,
+  ClientModel,
   ClientSession,
   TableProps,
 } from "./contracts";
@@ -212,6 +213,10 @@ export function listenForAudioUnlock(
   return () => listeners.abort();
 }
 
+function needsSeatRecovery({ connection, credential }: ClientModel) {
+  return connection === "DISCONNECTED" && credential !== null;
+}
+
 export function listenForSeatRecovery(
   windowTarget: EventTarget,
   documentTarget: EventTarget,
@@ -221,8 +226,7 @@ export function listenForSeatRecovery(
   const listeners = new AbortController();
   const options = { signal: listeners.signal };
   function resumeIfDisconnected() {
-    const { connection, credential } = session.getState();
-    if (connection === "DISCONNECTED" && credential) session.resume();
+    if (needsSeatRecovery(session.getState())) session.resume();
   }
   windowTarget.addEventListener("online", resumeIfDisconnected, options);
   windowTarget.addEventListener("focus", resumeIfDisconnected, options);
@@ -234,6 +238,44 @@ export function listenForSeatRecovery(
     options,
   );
   return () => listeners.abort();
+}
+
+export function scheduleSeatRecovery(
+  session: ClientSession,
+  schedule: (delayMs: number, retry: () => void) => () => void = (
+    delayMs,
+    retry,
+  ) => {
+    const timer = setTimeout(retry, delayMs);
+    return () => clearTimeout(timer);
+  },
+) {
+  const firstDelay = 1000;
+  let delay = firstDelay;
+  let cancel: (() => void) | undefined;
+  function update() {
+    const state = session.getState();
+    if (!needsSeatRecovery(state)) {
+      cancel?.();
+      cancel = undefined;
+      if (state.connection === "CONNECTED" || !state.credential)
+        delay = firstDelay;
+      return;
+    }
+    cancel ??= schedule(delay, () => {
+      cancel = undefined;
+      if (needsSeatRecovery(session.getState())) {
+        delay = Math.min(delay * 2, 8000);
+        session.resume();
+      }
+    });
+  }
+  const unsubscribe = session.subscribe(update);
+  update();
+  return () => {
+    unsubscribe();
+    cancel?.();
+  };
 }
 
 function bootstrap(element: HTMLElement) {
@@ -251,6 +293,7 @@ function bootstrap(element: HTMLElement) {
     audio,
   );
   const stopAudioUnlock = listenForAudioUnlock(window, audio);
+  const stopRecoveryTimer = scheduleSeatRecovery(session);
   const stopSeatRecovery = listenForSeatRecovery(
     window,
     document,
@@ -278,6 +321,7 @@ function bootstrap(element: HTMLElement) {
     motion.removeEventListener("change", render);
     stopAudioUnlock();
     stopSeatRecovery();
+    stopRecoveryTimer();
     root.unmount();
     session.dispose();
     audio.dispose();
