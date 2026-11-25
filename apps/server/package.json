@@ -8,6 +8,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@caxio/engine": "workspace:*"
+    "@caxio/shared": "workspace:*"
   }
 }
