@@ -62,6 +62,8 @@ export const tile = {
   handY: 151,
   tableY: 83,
   selectedLift: 5,
+  // The scene and DOM draw the same ink underline at the bottom of the un-lifted slot.
+  underline: { dy: 38, h: 2, inset: 0 },
   footprint: { dx: 2, dy: 2, band: 1 },
 } as const;
 
