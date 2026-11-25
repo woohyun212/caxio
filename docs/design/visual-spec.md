@@ -6,12 +6,12 @@
 
 | 결정 | 적용값 | 전환 시 바꿀 곳 |
 | --- | --- | --- |
-| G1 무대 | **고정 경사 직교 B.** Q1에서 비교 대상 A와 B 모두 12/12 조합의 혼합 블록 0, 읽는 앞면 17개 원본 픽셀 차이 0. B는 CPU 중앙값 1.00ms, 동기 4.00ms, 84회 그리기였다. | W1의 stage 토큰을 A/B로 교체하고 투영된 좌석 앵커 시편을 다시 캡처한다. |
+| G1 무대 | **고정 경사 직교 B.** Q1에서 비교 대상 A와 B 모두 12/12 조합의 혼합 블록 0, 읽는 앞면 17개 원본 픽셀 차이 0. B는 CPU 중앙값 1.00ms, 동기 4.00ms, 84회 그리기였다. | 최종 제품 B가 §6의 판독·성능 예산을 회복하지 못하면 평면 A 재검토와 앵커 재측정을 요청한다. |
 | G2 문양 | S. 파랑 구름, 보라 별, 호박 달, 빨강 해 | K로 전환하려면 별을 #B26E00, 달을 #1E7A3C로 바꾸고 아틀라스·색각 검사를 다시 실행한다. |
 | G3 좁은 창 | DOM 전용 컴팩트. 같은 조작부로 WebGL 실패도 처리한다. | 작은 장면을 추가할 때는 컴팩트 중앙의 직전 제출만 Canvas로 교체하고 터치·청크 예산을 다시 잰다. |
 | G4 제작 범위 | 문양·숫자·등판 표식은 Codex 생성, 기하 외곽선·체커·디더는 코드. 픽셀 수정은 원본 마스크 전경 수의 10%까지. | 선·체커까지 생성하려면 매니페스트의 원본 종류를 늘리고 Q2를 다시 통과한다. |
 
-**잠금 상태.** Q1의 렌더 경로와 카메라를 잠갔다. **Q2·Q3 잠정 치수**는 진행 중인 제작 작업의 원자료를 반영했다. 해당 gate 최종 보고를 인수하면 같은 파일에서 셀과 화면 치수를 동결한다. 대조용 원자료는 Q1 커밋 bedec21a2536a821467eb52a546d6c9bf9ea8629의 렌더링 실험과 .omc/drafts/design/q1-render-path/report.md, Q2·Q3 제작 worktree의 design/q2-assets/outputs/{manifest,layout}.json이다. 이미지 제작·파일 검사는 [에셋 명세](assets.md)에 있다.
+**잠금 상태.** Q1·Q2·Q3를 통과한 렌더 경로·셀·좌석·화면 치수를 구현 기준으로 확정한다. 최종 보고서는 .omc/drafts/design/{q1-render-path,q2-assets}/report.md, 실험 커밋은 각각 bedec21a2536a821467eb52a546d6c9bf9ea8629와 cb346a1fda7715478ffe4f88707a92a898294782다. 이미지 제작·파일 검사는 [에셋 명세](assets.md)에 있다.
 
 ## 1. 토큰과 그리기 순서
 
@@ -38,7 +38,7 @@ Galmuri11 Regular 400, 자간 0. 와이드 본문·명판·HUD·워드마크는 
 
 가용 CSS 뷰포트에서 k=min(floor(W/416),floor(H/250)). k≥2면 와이드. 프레임은 정확히 416k×250k, 좌상단은 남는 폭·높이의 절반을 각각 내림한다. 밖은 ink. 상태 띠 16 → 장면 196 → 메시지 16 → 명령 22. 장면 내부 y=0..29 받침, 30..45 명판, 46..143 테이블, 144..195 손패. 리사이즈 시 렌더 타깃은 고정하고 출력 버퍼·DOM 배율만 갱신한다. DPR은 k 계산에 넣지 않는다. 확대/축소 시 CSS 뷰포트를 다시 재고 선택 ID와 포커스 ID를 복원한다.
 
-와이드의 R3F Canvas는 dpr=1, flat, alpha=false, antialias=false, demand. 416×196 RGBA8 WebGLRenderTarget, NoColorSpace, min/mag NearestFilter, mipmaps/MSAA 없음. 타깃에는 표시 sRGB 바이트를 바로 기록. 흰색 기본 MeshBasicMaterial 아틀라스, alphaTest=0.5, 커버리지 ShaderMaterial, 별도 씬 전체화면 복사 ShaderMaterial만 사용한다. 팔레트는 TS 바이트/255에서 가져온다. 색 변환·톤 매핑·조명 재질·그림자 맵·블렌딩·후처리 패키지가 개입하지 않는다. 복사 좌표는 ivec2(gl_FragCoord.xy)/k, texelFetch(level 0). 마지막 칸까지 정확히 k×k. WebGL 기본 DITHER를 끈다. Canvas 자체만 image-rendering: pixelated, k×DPR이 비정수일 때 transform: translate(0.015625px,0.015625px), 정수면 none. 박스·카메라·DOM hit 좌표는 이동시키지 않는다. 물리 픽셀 중심을 역투영해 경계 동률은 좌·상에 귀속한다. 분수에서는 칸 폭이 floor/ceil(k×DPR)로 달라져도 혼합 블록과 기준 오차는 0이어야 한다. 언마운트 때 target·geometry·material·texture를 해제한다.
+와이드의 R3F Canvas는 dpr=1, flat, alpha=false, antialias=false, demand. 416×196 RGBA8 WebGLRenderTarget, NoColorSpace, min/mag NearestFilter, mipmaps/MSAA 없음. 타깃에는 표시 sRGB 바이트를 바로 기록. 흰색 기본 MeshBasicMaterial 아틀라스, alphaTest=0.5, 커버리지 ShaderMaterial, 별도 씬 전체화면 복사 ShaderMaterial만 사용한다. 팔레트는 TS 바이트/255에서 가져온다. 색 변환·톤 매핑·조명 재질·그림자 맵·블렌딩·후처리 패키지가 개입하지 않는다. 복사 좌표는 ivec2(gl_FragCoord.xy)/k, texelFetch(level 0). 마지막 칸까지 정확히 k×k. WebGL 기본 DITHER를 끈다. Canvas 자체만 image-rendering: pixelated, k×DPR이 비정수일 때 transform: translate(0.015625px,0.015625px), 정수면 none. 박스·카메라·DOM hit 좌표는 이동시키지 않는다. 물리 픽셀 중심을 역투영해 경계 동률은 좌·상에 귀속한다. 분수에서는 칸 폭이 floor/ceil(k×DPR)로 달라져도 혼합 블록과 기준 오차는 0이어야 한다. Q1에서 보정 없는 CSS 단독 확대는 9/12, 보정한 고정 타깃은 12/12 통과했다. 같은 보정을 적용한 직접 출력도 해당 Chrome에서는 일치했으나, 타깃의 표시 바이트를 DOM 합성 전에 검사하기 위해 명시적 타깃과 복사 패스를 유지한다. 언마운트 때 target·geometry·material·texture를 해제한다.
 
 **공통 배치.** 화면 좌상단 원점, x 오른쪽, y 아래. 탁자 구역 (0,46,416,98). 상면은 중심 (208,98), 투영 반높이 44, 양쪽 반원 중심 간격 300인 스타디움이다. 가장자리에서 안으로 ink 1, paper 1, sage 3, 속은 펠트. 중앙 캡션 (130,59,156,16), 바닥 타일 y=83. 긴 조합명은 캡션을 중앙 정렬한 펠트 폭 안에서 확장한다. 손패 y=151, 선택 y=146. n장 폭 30n−2, x=floor((416−폭)/2)+30i. 13장 388, 12장 358, 중앙 5장 148. 구름<별<달<해, 숫자 3..N,1,2 순. 비운 슬롯은 즉시 중앙 정렬한 목표로 옮긴다.
 
@@ -46,7 +46,6 @@ Galmuri11 Regular 400, 자간 0. 와이드 본문·명판·HUD·워드마크는 
 
 **채택 무대 B.** 수평면에서 55° 올린 고정 직교 카메라. 좌우 경계 ±208, 상하 ±98, near=0.1, far=1600, 위치 (0,600 sin55°,600 cos55°), 원점을 본다. 탁자 상면의 깊이 방향 반지름=44/sin55°, extrusion 깊이 9, bevel 없음, curveSegments=10. 받침은 92×7×12 박스, 중심은 (열 중심,26)에 투영한다. 5인 x=52/156/260/364. 등판은 20×30×2 박스, X 회전 −0.42rad, sage 면과 ink 테두리만. 테이블·받침 옆벽은 c=clamp(0.45+0.35·dot(월드 단위 법선,normalize(−0.4,0.7,1)),0,1)로 ink/pine을 교대한다. 앞면은 camera.quaternion을 복사하고 정수 목표 슬롯을 월드로 역투영해 1 texel=1 논리 px를 유지한다. 카메라 이동·회전·줌은 없다.
 
-**A · 전환 시 차이.** Q1의 비교 무대는 정면 직교, 화면 1px당 월드 1단위, 평면 스타디움과 평면 받침이다. 같은 손패·캡션·슬롯을 공유하며 상대 등판에 20×26 아틀라스의 C와 체커를 1:1로 쓴다. 출시 구현은 위의 B 한 경로를 사용한다.
 
 **4×4 Bayer.** 첫 행은 타깃 아래쪽 y=0, 첫 열은 왼쪽 x=0. PNG를 위에서 검사할 때 yGL=height−1−yPNG로 바꾼다.
 
@@ -188,6 +187,17 @@ W1 시편은 만료 경합도 표시해야 한다. 마지막 완료된 턴의 �
 | [초기 패](concepts/exploration-tiles.png) | 탐색 1의 Codex 생성 타일 시트와 네 톤 정리본 사본 | 표본은 실제 셀보다 크다. |
 | [대국 정제 시안](concepts/table-play.png) | 2026-11-26 Codex image generation. 5석, 위쪽 네 받침, 가운데 4 페어, 들린 7 두 장, S 잉크와 읽기 평면을 지정 | Q1 후 단색 등판과 구름 7·달 7을 지정해 다시 생성했다. 명판의 상하 위치·실제 등판 개수·글꼴·펠트 패턴은 생성기의 묘사다. 치수와 셰이더 검사는 실측 프레임으로 한다. |
 | [패 정제 시안](concepts/tile-sheet.png) | 2026-11-26 Codex image generation. 2×5 비교 시트에 두 자리 숫자, 4색 실루엣, 겹친 C·체커 등판을 지정 | 숫자 주변 사각 테두리와 실제보다 큰 등판은 시안에만 있다. 아틀라스 위치·광선 수와 색은 에셋 검사로 판정한다. |
+
+### 고정된 기준 프레임
+
+| 증거 | 읽을 항목 | 원본 사본 |
+| --- | --- | --- |
+| Q1 실제 WebGL 경로 | B의 55° 경사·단색 등판·펠트·17개 앞면. HUD가 없는 성능 시편이며 글리프는 실험용이다. | [B 1배](concepts/q1/scene-B-1x.png) · [B 3배](concepts/q1/scene-B.png) |
+| Q3 와이드 합성 | 실제 폰트·아틀라스·DOM의 슬롯과 여백. 평면 CPU 합성의 상대 등판에는 C가 있지만 제품 B의 경사진 등판은 단색이다. 48등판은 부하 배치 시편이다. | [5인](concepts/q2-q3/frame-wide-5.png) · [4인](concepts/q2-q3/frame-wide-4.png) · [5인 최대 배치](concepts/q2-q3/frame-wide-5-stress.png) |
+| Q3 컴팩트 DOM 합성 | 5인 12장은 7+5, 4인 13장은 7+6. 가로에서는 한 줄이다. 그림 속 반복 Bayer 배경은 Q1 판정에 따라 제품에서 ink 단색이다. | [360×640](concepts/q2-q3/frame-compact-360x640.png) · [390×844](concepts/q2-q3/frame-compact-390x844.png) · [844×390](concepts/q2-q3/frame-compact-844x390.png) · [360×640 4인](concepts/q2-q3/frame-compact-360x640-4p.png) |
+| Q2 실물 크기 대조 시트 | 같은 생성 글리프를 조합한 두 규격 각 60면. 사진·생성 시안과 독립적으로 획·색·원본 texel을 검사한다. | 와이드 [1배](concepts/q2-q3/contact-wide-1x.png)·[2배](concepts/q2-q3/contact-wide-2x.png)·[3배](concepts/q2-q3/contact-wide-3x.png)·[4배](concepts/q2-q3/contact-wide-4x.png), 컴팩트 [1배](concepts/q2-q3/contact-compact-1x.png)·[2배](concepts/q2-q3/contact-compact-2x.png)·[3배](concepts/q2-q3/contact-compact-3x.png)·[4배](concepts/q2-q3/contact-compact-4x.png), [회색조](concepts/q2-q3/contact-gray-1x.png)·[단일 잉크](concepts/q2-q3/contact-shapes-1x.png) |
+
+Q3에서 명판 최대 폭을 84→92 논리 px로 바로잡았다. 장수 0~13·칩 0~320에서 ‘2번 10장 200칩’이 92px였다. 컴팩트 5인 세로 472→540, 4인 세로 448→516, 5인 가로 310→330 CSS px로 바뀌었다. 세로 상태 문구의 자연 폭이 618px여서 44+24px 두 행이 필요했고, 칩·선택 요약 너비 364px를 나누려고 별도 24px 행을 두었다. 가로 상태 띠도 소리·메뉴의 44px 터치 높이를 확보했다. 와이드 416×250은 유지한다. 일곱 합성본은 Chrome 글꼴 평활화·서브픽셀 보정을 끈 조건에서 여덟 색이었다. 기본 설정의 DOM 글자 경계에는 중간색이 생길 수 있으므로 픽셀 팔레트 검사는 GPU 장면과 PNG에, DOM은 선언 색·대비·판독·글자 넘침에 적용한다.
 
 **출시 전 증거.** Bun으로 Bayer 순서/16단계 점유, CPU 색, fitScale 표, 앵커·슬롯, snap, damp(30/60/120Hz의 0.5초 차이 ≤0.001), 60면·좌석 이름·대표값·메시지 우선순위·파일 검사를 Bun만으로 반복한다. 실제 렌더 타깃 픽셀 vs CPU 기대값 차이 0, 모든 재질의 8견본 RGB 일치, k×k 혼합 블록 0. 정지 2초 추가 렌더 0, 두 정지 캡처 차이 0. 한 타일 이동 차이는 전후 경계·그림자 안에만 존재. 5인 최대 장면(48등판+12손패+5바닥) M3 Chrome DPR1, k=3에서 20프레임 예열·120프레임 정상·60프레임 동기 읽기를 3회 측정하고 세 중앙값의 중앙값으로 CPU 제출 ≤1ms, 동기 readback 포함 중앙값 ≤5ms, draw calls ≤150. 휴대폰 한 대에서 실측 환경·값을 기록한다.
 
