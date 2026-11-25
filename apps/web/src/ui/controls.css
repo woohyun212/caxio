@@ -374,13 +374,21 @@
 }
 .gc-wide .gc-command {
   display: grid;
+  grid-template-rows: var(--gc-command);
   grid-template-columns: 97px 1px 140px 3px 101px 2px 68px;
   padding-left: 2px;
   height: var(--gc-command);
   line-height: 12px;
 }
+.gc-wide :is(.gc-self, .gc-selected) {
+  white-space: nowrap;
+}
 .gc-wide .gc-self {
   grid-column: 1;
+}
+.gc-wide .gc-self:only-child {
+  grid-column: 1 / -1;
+  text-align: start;
 }
 .gc-wide .gc-selected {
   grid-column: 3;

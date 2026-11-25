@@ -27,9 +27,21 @@ const reasons = {
 export function tileName(t: Tile) {
   return `${["구름", "별", "달", "해"][t.suit]} ${t.number}`;
 }
-export function describe(result: PreviewResult) {
-  if (!result.ok) return reasons[result.reason];
-  return `${kinds[result.kind]} · ${typeof result.representative === "number" ? result.representative : tileName(result.representative)}`;
+const shortReasons = {
+  ...reasons,
+  COUNT: "1·2·3·5장만",
+  WRONG_COUNT: "바닥과 같은 장수",
+  NOT_HIGHER: "바닥보다 높게",
+};
+export function describe(result: PreviewResult, short = false) {
+  if (!result.ok) return (short ? shortReasons : reasons)[result.reason];
+  const kind =
+    short && result.kind === "STRAIGHT_FLUSH" ? "스티플" : kinds[result.kind];
+  const representative =
+    typeof result.representative === "number"
+      ? result.representative
+      : tileName(result.representative);
+  return `${kind}${short ? " " : " · "}${representative}`;
 }
 export function enterCode(input: string, join: (code: string) => void) {
   const code = input.trim().toUpperCase();

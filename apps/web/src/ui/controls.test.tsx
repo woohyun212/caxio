@@ -1,5 +1,9 @@
 import { expect, mock, spyOn, test } from "bun:test";
-import type { Preview, Tile } from "@caxio/shared/contracts/domain";
+import type {
+  Preview,
+  PreviewResult,
+  Tile,
+} from "@caxio/shared/contracts/domain";
 import {
   a4Settlement,
   deadlines,
@@ -996,4 +1000,162 @@ test("idle round phases use the server wait lock and a zero-two settlement shows
       expectLock(html, actionTag(html, action), "서버 응답 대기");
   }
   expect(render(props(paid.view))).toContain("남은 0장 × 1배(2가 0장) = 0");
+});
+
+test("wide selection shows short text and preserves the full accessible preview for counts 0 through 13", () => {
+  const largestTile = { suit: 0, number: 15 } as const;
+  const cases: [PreviewResult, string, string][] = [
+    [
+      { ok: true, kind: "SINGLE", representative: largestTile },
+      "싱글 구름 15",
+      "싱글 · 구름 15",
+    ],
+    [
+      { ok: true, kind: "PAIR", representative: largestTile },
+      "페어 구름 15",
+      "페어 · 구름 15",
+    ],
+    [
+      { ok: true, kind: "TRIPLE", representative: 15 },
+      "트리플 15",
+      "트리플 · 15",
+    ],
+    [
+      { ok: true, kind: "STRAIGHT", representative: largestTile },
+      "스트레이트 구름 15",
+      "스트레이트 · 구름 15",
+    ],
+    [
+      { ok: true, kind: "FLUSH", representative: largestTile },
+      "플러시 구름 15",
+      "플러시 · 구름 15",
+    ],
+    [
+      { ok: true, kind: "FULL_HOUSE", representative: 15 },
+      "풀하우스 15",
+      "풀하우스 · 15",
+    ],
+    [
+      { ok: true, kind: "FOUR_OF_A_KIND", representative: 15 },
+      "포카드 15",
+      "포카드 · 15",
+    ],
+    [
+      { ok: true, kind: "STRAIGHT_FLUSH", representative: largestTile },
+      "스티플 구름 15",
+      "스트레이트 플러시 · 구름 15",
+    ],
+    [{ ok: false, reason: "EMPTY" }, "패를 골라 주세요", "패를 골라 주세요"],
+    [{ ok: false, reason: "COUNT" }, "1·2·3·5장만", "1·2·3·5장만 낼 수 있어요"],
+    [
+      { ok: false, reason: "ILLEGAL_HAND" },
+      "조합이 아니에요",
+      "조합이 아니에요",
+    ],
+    [
+      { ok: false, reason: "WRONG_COUNT" },
+      "바닥과 같은 장수",
+      "같은 장수로 내세요",
+    ],
+    [
+      { ok: false, reason: "NOT_HIGHER" },
+      "바닥보다 높게",
+      "바닥보다 높은 조합이 필요해요",
+    ],
+  ];
+  const ownHand = Array.from(
+    { length: 13 },
+    (_, i) => ({ suit: 0, number: i + 1 }) as const,
+  );
+  const view = { ...follow, maxNumber: 15 as const, ownHand };
+  for (const [result, short, full] of cases) {
+    for (let n = 0; n <= ownHand.length; n++) {
+      const selected = ownHand.slice(0, n);
+      // A concurrent wire error occupies the live text, so a selection lock must describe the preview itself.
+      const html = render(
+        props(view, { selected, errorCode: "STALE_TURN" }, 3, () => result),
+      );
+      expect(html).toContain(
+        `<span aria-hidden="true" title="${full}">${n}장 ${short}</span>`,
+      );
+      expect(html).toContain(
+        `<span class="gc-selected" aria-describedby="gc-preview"><span class="gc-sr">${n}장 · <span id="gc-preview">${full}</span></span>`,
+      );
+      if (!result.ok) {
+        const submit = actionTag(html, "submit");
+        expect(submit).toContain('aria-describedby="gc-preview"');
+        expectLock(html, submit, full);
+      }
+    }
+    const compact = render(props(view, { selected: ownHand }, 0, () => result));
+    expect(compact).toContain(
+      `<span>13장 · <span id="gc-preview">${full}</span></span>`,
+    );
+  }
+  expect(styleRule(".gc-wide .gc-command")).toContain(
+    "grid-template-rows: var(--gc-command)",
+  );
+  expect(styleRule(".gc-wide :is(.gc-self, .gc-selected)")).toContain(
+    "white-space: nowrap",
+  );
+});
+
+test("wide self cell preserves seat, balance and pass or spectating status", () => {
+  const passed = lastPlaySequence.continuing[1].view;
+  const [a, b, c, d, e] = passed.slots;
+  if (!b) throw Error("expected a passed seat");
+  for (const chips of [0, 9, 10, 99, 100, 320]) {
+    const html = render(
+      props({ ...passed, slots: [a, { ...b, chips }, c, d, e] }, { seatId: 1 }),
+    );
+    expect(html).toContain(
+      `<span class="gc-self"><span class="gc-sr">나 </span>2번 ${chips}칩 패스</span>`,
+    );
+    for (const { view } of [
+      spectatorExamples.following,
+      spectatorExamples.gameOver,
+    ]) {
+      const [a, b, c, out, e] = view.slots;
+      if (!out?.isOut) throw Error("expected an OUT seat");
+      const html = render(
+        props(
+          { ...view, slots: [a, b, c, { ...out, chips }, e] },
+          { seatId: 3 },
+        ),
+      );
+      expect(html).toContain(
+        `<div class="gc-command"><span class="gc-self"><span>나 </span>4번 ${chips}칩 탈락 · 관전 중</span></div>`,
+      );
+    }
+  }
+  expect(styleRule(".gc-wide .gc-self:only-child")).toContain(
+    "grid-column: 1 / -1",
+  );
+});
+test("wide caption expands in height inside the felt for a five-tile previous play", () => {
+  const tiles = [11, 12, 13, 14, 15].map(
+    (number) => ({ number, suit: 0 }) as const,
+  );
+  const v: PlayerView = {
+    ...follow,
+    tableHand: null,
+    maxNumber: 15,
+    lastPlay: { turnId: 1, seatId: 2, tiles },
+  };
+  const html = render(
+    props(v, {}, 3, () => ({
+      ok: true,
+      kind: "STRAIGHT_FLUSH",
+      representative: { number: 15, suit: 0 },
+    })),
+  );
+  const caption = html.match(
+    /<span class="gc-caption"[^>]*>[^<]*<\/span>/,
+  )?.[0];
+  expect(caption).toContain("height:auto");
+  expect(caption).toContain("min-height:16px");
+  expect(caption).toContain("max-width:416px");
+  expect(caption).toContain(
+    "직전 제출 · 3번 · 스트레이트 플러시 · 구름 11, 구름 12, 구름 13, 구름 14, 구름 15",
+  );
 });

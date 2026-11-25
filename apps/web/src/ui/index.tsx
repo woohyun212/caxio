@@ -148,12 +148,13 @@ function Board({
   const selfText =
     model.seatId === null
       ? ""
-      : `나 ${seatLabel(model.seatId)} ${self?.chips ?? 0}칩`;
+      : `${seatLabel(model.seatId)} ${self?.chips ?? 0}칩`;
   const publicStatus = out
     ? "탈락 · 관전 중"
     : model.seatId !== null && passedSeats(view).has(model.seatId)
       ? "패스"
       : "";
+  const shortSelf = wide && publicStatus === "패스" && !end;
   const message =
     outage(model) ||
     (model.errorCode !== null
@@ -266,6 +267,8 @@ function Board({
               wide
                 ? {
                     ...box(stage.caption),
+                    height: "auto",
+                    minHeight: stage.caption.h,
                     width: "max-content",
                     minWidth: stage.caption.w,
                     maxWidth: layout.felt.w,
@@ -320,12 +323,26 @@ function Board({
       </div>
       <div className="gc-command">
         <span className="gc-self">
+          {selfText && (
+            <span className={shortSelf ? "gc-sr" : undefined}>나 </span>
+          )}
           {selfText} {publicStatus}
         </span>
         {!out && !end && (
           <>
-            <span className="gc-selected">
-              {model.selected.length}장 · <span id="gc-preview">{summary}</span>
+            <span
+              className="gc-selected"
+              aria-describedby={wide ? "gc-preview" : undefined}
+            >
+              <span className={wide ? "gc-sr" : undefined}>
+                {model.selected.length}장 ·{" "}
+                <span id="gc-preview">{summary}</span>
+              </span>
+              {wide && (
+                <span aria-hidden="true" title={summary}>
+                  {model.selected.length}장 {describe(result, true)}
+                </span>
+              )}
             </span>
             <div className="gc-actions">
               <Action
