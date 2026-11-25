@@ -106,6 +106,44 @@ for (const max of [9, 13, 15] as const) {
       }
     });
 
+    test("only listed runs are straights across all five-number subsets", () => {
+      const deckNumbers = run(1, max);
+      let subsets = 0;
+      let allowedSubsets = 0;
+      for (let mask = 0; mask < 1 << max; mask++) {
+        const numbers = deckNumbers.filter((_, i) => (mask & (1 << i)) !== 0);
+        if (numbers.length !== 5) continue;
+        subsets++;
+        const allowed = runs.some((r) => r.every((n) => numbers.includes(n)));
+        const mixed = numbers.map((n, i) => tile(n, i === 0 ? 1 : 0));
+        if (allowed) {
+          allowedSubsets++;
+          expect(get(mixed).kind).toBe("STRAIGHT");
+        } else {
+          expect(classify(mixed, max)).toBeNull();
+        }
+        expect(get(suited(numbers, 0)).kind).toBe(
+          allowed ? "STRAIGHT_FLUSH" : "FLUSH",
+        );
+      }
+      expect(subsets).toBe({ 9: 126, 13: 1287, 15: 3003 }[max]);
+      expect(allowedSubsets).toBe(max - 3);
+    });
+
+    test("replacing any run number with a neighbouring number rejects the hand", () => {
+      for (const numbers of runs) {
+        for (const [i, missing] of numbers.entries()) {
+          for (const neighbour of [numbers[i - 1], numbers[i + 1]]) {
+            if (neighbour === undefined) continue;
+            const tiles = numbers.map((n) =>
+              n === missing ? tile(neighbour, 1) : tile(n, 0),
+            );
+            expect(classify(tiles, max)).toBeNull();
+          }
+        }
+      }
+    });
+
     test("forbidden wraps and round-dependent wrap", () => {
       for (const highCount of [1, 2, 3]) {
         const numbers = [
