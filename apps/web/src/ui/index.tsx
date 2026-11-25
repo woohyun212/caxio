@@ -378,6 +378,7 @@ function Board({
           openSettlement={(button) => {
             caller.current = button;
             open("settlement");
+            focusPanel.current = true;
           }}
         />
       )}
@@ -391,7 +392,15 @@ function Board({
           className="gc-panel-slot"
           style={
             wide
-              ? box({ ...layout.felt, y: frame.statusHeight + layout.felt.y })
+              ? {
+                  ...box({
+                    x: stage.stadium.x - stage.stadium.centerSpacing / 2,
+                    y: frame.statusHeight + stage.caption.y,
+                    w: stage.stadium.centerSpacing,
+                    h: 2 * (stage.stadium.y - stage.caption.y),
+                  }),
+                  maxHeight: `calc(${layout.felt.y + layout.felt.h - stage.caption.y}px - var(--gc-fallback-height))`,
+                }
               : undefined
           }
         >

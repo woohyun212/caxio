@@ -843,12 +843,12 @@ test("wide felt panels reserve the fallback notice and the panel shadow", () => 
   expect(styleRule(".gc-wide .gc-opaque")).toContain(
     "--gc-fallback-height: 14px",
   );
-  expect(styleRule(".gc-wide .gc-panel-slot")).toContain(
-    "padding-bottom: calc(var(--gc-fallback-height) + 2px)",
-  );
+  expect(styleRule(".gc-wide .gc-panel-slot")).toContain("padding-bottom: 2px");
   const paid = lastPlaySequence.continuing[3].view;
-  expect(render({ ...props(paid), graphicsReady: false })).toContain(
-    "top:calc(144px - var(--gc-fallback-height))",
+  const fallback = render({ ...props(paid), graphicsReady: false });
+  expect(fallback).toContain("top:calc(144px - var(--gc-fallback-height))");
+  expect(fallback).toMatch(
+    /class="gc-panel-slot" style="[^"]*top:75px[^"]*height:78px;max-height:calc\(85px - var\(--gc-fallback-height\)\)/,
   );
   expect(
     render({
@@ -1320,5 +1320,15 @@ test("compact settlement pages fit the 104px center and visit every public row a
   expect(styleRule(".gc-compact .gc-center")).toContain("height: 104px");
   expect(styleRule('.gc-compact .gc-panel[data-panel="settlement"]')).toContain(
     "grid-template-rows: 44px 1fr",
+  );
+});
+
+test("Galmuri11 positions its ink within the fixed lines and covered captions give way to the panel", () => {
+  const font = styleRule("@font-face");
+  expect(font).toContain("ascent-override: 100%");
+  expect(font).toContain("descent-override: 8.3333%");
+  expect(font).toContain("line-gap-override: 0%");
+  expect(css).toMatch(
+    /\.gc-center\[data-covered="true"\],\s*\.gc-end:has\(~ \.gc-panel-slot\)\s*\{\s*visibility: hidden/,
   );
 });
