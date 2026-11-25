@@ -11,6 +11,9 @@ import {
 
 test("sixty face addresses per atlas match the PNG grid and exclude the shared back", () => {
   expect(backRect).toEqual({ x: 0, y: 160, w: 20, h: 26 });
+  expect(backRect.x + backRect.w).toBeLessThanOrEqual(atlases.wide.width);
+  expect(backRect.y + backRect.h).toBeLessThanOrEqual(atlases.wide.height);
+  expect(backRect.y).toBeGreaterThanOrEqual(atlases.compact.height);
   for (const [mode, width, columns] of [
     [
       "wide",

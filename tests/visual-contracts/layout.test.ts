@@ -185,6 +185,17 @@ test("Q3 selection lifts the face and keeps the ground at the target slot", () =
   expect(slot.y).toBe(151);
   expect(table.at(0)?.y).toBe(83);
   expect(slot.y - tile.selectedLift).toBe(146);
+  expect(tile.underline).toEqual({ dy: 38, h: 2, inset: 0 });
+  const { dy, h, inset } = tile.underline;
+  const underline = {
+    x: slot.x + inset,
+    y: slot.y + dy,
+    w: slot.w - 2 * inset,
+    h,
+  };
+  expect(underline).toEqual({ x: 14, y: 189, w: 28, h: 2 });
+  expect(underline.y + underline.h).toBe(slot.y + slot.h);
+  expect(tile.underline.h * tile.compactScale).toBe(4);
   expect({
     ...slot,
     x: slot.x + tile.footprint.dx,

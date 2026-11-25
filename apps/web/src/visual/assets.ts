@@ -34,6 +34,7 @@ export function faceColors(suitRank: number): readonly string[] {
   return [...faceBase, suit];
 }
 
+// Only the wide atlas contains a back. The compact atlas contains faces only.
 export const backRect = {
   x: 0,
   y: 160,
