@@ -1,0 +1,45 @@
+[
+  {
+    "seatId": 1,
+    "type": "PLAY",
+    "tiles": [
+      { "number": 13, "suit": 3 },
+      { "number": 5, "suit": 3 },
+      { "number": 8, "suit": 3 },
+      { "number": 7, "suit": 3 },
+      { "number": 1, "suit": 3 }
+    ]
+  },
+  { "seatId": 2, "type": "PASS" },
+  { "seatId": 3, "type": "PASS" },
+  { "seatId": 0, "type": "PASS" },
+  {
+    "seatId": 1,
+    "type": "PLAY",
+    "tiles": [{ "number": 12, "suit": 0 }, { "number": 12, "suit": 2 }]
+  },
+  { "seatId": 2, "type": "PASS" },
+  { "seatId": 3, "type": "PASS" },
+  { "seatId": 0, "type": "PASS" },
+  {
+    "seatId": 1,
+    "type": "PLAY",
+    "tiles": [{ "number": 3, "suit": 2 }, { "number": 3, "suit": 0 }]
+  },
+  { "seatId": 2, "type": "PASS" },
+  { "seatId": 3, "type": "PASS" },
+  { "seatId": 0, "type": "PASS" },
+  { "seatId": 1, "type": "PLAY", "tiles": [{ "number": 4, "suit": 2 }] },
+  { "seatId": 2, "type": "PASS" },
+  { "seatId": 3, "type": "PASS" },
+  { "seatId": 0, "type": "PASS" },
+  { "seatId": 1, "type": "PLAY", "tiles": [{ "number": 7, "suit": 2 }] },
+  { "seatId": 2, "type": "PASS" },
+  { "seatId": 3, "type": "PASS" },
+  { "seatId": 0, "type": "PASS" },
+  { "seatId": 1, "type": "PLAY", "tiles": [{ "number": 8, "suit": 0 }] },
+  { "seatId": 2, "type": "PASS" },
+  { "seatId": 3, "type": "PASS" },
+  { "seatId": 0, "type": "PASS" },
+  { "seatId": 1, "type": "PLAY", "tiles": [{ "number": 1, "suit": 1 }] }
+]
