@@ -45,6 +45,7 @@ export function Entry({
     (model.pending || model.connection === "CONNECTING"
       ? "서버 응답 대기"
       : "");
+  const notice = message || (invalid ? "6자리 방 코드를 확인해 주세요." : busy);
   return (
     <div className="gc-entry">
       <h1>caxio</h1>
@@ -59,7 +60,7 @@ export function Entry({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (!busy) setInvalid(!enterCode(code, joinRoom));
+          activate(busy, () => setInvalid(!enterCode(code, joinRoom)));
         }}
       >
         <label htmlFor="gc-code">방 코드</label>
@@ -82,9 +83,12 @@ export function Entry({
           입장
         </button>
       </form>
-      <div id="gc-entry-status">{busy}</div>
-      <div aria-live="polite">
-        {message || (invalid ? "6자리 방 코드를 확인해 주세요." : "") || busy}
+      {busy && busy !== notice && <div id="gc-entry-status">{busy}</div>}
+      <div
+        id={busy === notice ? "gc-entry-status" : undefined}
+        aria-live="polite"
+      >
+        {notice}
       </div>
     </div>
   );

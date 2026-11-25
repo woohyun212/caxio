@@ -34,6 +34,7 @@ import { frame, palette } from "../visual/tokens";
 import { GameControls } from "./index";
 import { Action, EndScreen, Panel } from "./screens";
 import {
+  activate,
   automaticSettlement,
   clockText,
   describe,
@@ -42,6 +43,7 @@ import {
   nextFocusSlot,
   nextNotice,
   nextPanel,
+  outage,
   type PanelState,
   passedSeats,
   requestTurn,
@@ -998,13 +1000,67 @@ test("Tab order runs from status through the sorted hand and actions to settleme
     "닫기",
   ]);
 });
+test("outage recognizes a disconnected seat after its view is cleared", () => {
+  const model = props(null, { connection: "DISCONNECTED" }).model;
+  expect(outage(model)).toBe("연결이 끊겼어요");
+  expect(outage({ ...model, credential: null })).toBe("");
+  expect(outage({ ...model, connection: "CONNECTING" })).toBe("");
+  expect(outage({ ...model, connection: "CONNECTING", view: follow })).toBe(
+    "연결이 끊겼어요",
+  );
+});
+
 test("entry leaves restoration to the client session", () => {
-  for (const connection of ["DISCONNECTED", "RESTORING"] as const) {
-    const html = render(props(null, { connection }));
-    expect(html).toContain(">방 만들기</button>");
-    expect(html).toContain(">입장</button>");
-    expect(html).not.toContain(">자리 복구</button>");
-    if (connection === "RESTORING") expect(html).toContain("자리 복구 중");
+  for (const k of [0, 3]) {
+    for (const [connection, reason] of [
+      ["DISCONNECTED", "연결이 끊겼어요"],
+      ["RESTORING", "자리 복구 중"],
+    ] as const) {
+      const p = props(null, { connection }, k);
+      const html = render(p);
+      expect(html).toContain(">방 만들기</button>");
+      expect(html).toContain(">입장</button>");
+      expect(html).not.toContain(">자리 복구</button>");
+      const buttons = tags(html, /<button\b[^>]*>/g);
+      expect(buttons).toHaveLength(2);
+      for (const button of buttons) expectLock(html, button, reason);
+      expect(html.replace(/<[^>]+>/g, "").split(reason)).toHaveLength(2);
+      expect(html).toMatch(new RegExp(`aria-live="polite"[^>]*>${reason}<`));
+      const createRoom = mock(noop),
+        joinRoom = mock(noop),
+        busy = outage(p.model);
+      click(
+        Action({ children: "방 만들기", reason: busy, onClick: createRoom }),
+      );
+      activate(busy, () => enterCode(roomCode, joinRoom));
+      expect(createRoom).not.toHaveBeenCalled();
+      expect(joinRoom).not.toHaveBeenCalled();
+    }
+  }
+});
+
+test("disconnected entry without a credential is silent and unlocked", () => {
+  const html = render(
+    props(null, { connection: "DISCONNECTED", credential: null }),
+  );
+  expect(html).not.toContain("aria-disabled");
+  expect(html).toMatch(/aria-live="polite"[^>]*><\/div>/);
+  expect(html.replace(/<[^>]+>/g, "")).toBe("caxio방 만들기방 코드입장");
+});
+
+test("entry announces a pending request once and describes its lock alongside an error", () => {
+  const patch = { pending: { type: "CREATE_ROOM" } } as const;
+  const busy = "서버 응답 대기";
+  for (const errorCode of [null, "ROOM_FULL"] as const) {
+    const html = render(props(null, { ...patch, errorCode }));
+    for (const button of tags(html, /<button\b[^>]*>/g))
+      expectLock(html, button, busy);
+    expect(html.replace(/<[^>]+>/g, "").split(busy)).toHaveLength(2);
+    expect(html).toMatch(
+      new RegExp(
+        `aria-live="polite"[^>]*>${errorCode ? ERROR_TEXT[errorCode] : busy}<`,
+      ),
+    );
   }
 });
 test("idle round phases use the server wait lock and a zero-two settlement shows the unit multiplier", () => {
