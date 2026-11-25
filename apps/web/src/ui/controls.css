@@ -493,6 +493,13 @@
 .gc-compact .gc-end {
   grid-area: center;
 }
+.gc-compact .gc-center {
+  display: flex;
+  flex-direction: column;
+  height: 104px;
+  align-self: start;
+  overflow: auto;
+}
 .gc-compact .gc-center[data-covered="true"] {
   visibility: hidden;
 }
@@ -510,6 +517,15 @@
 }
 .gc-compact .gc-table {
   min-height: 80px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  justify-content: safe center;
+  flex-shrink: 0;
+  margin-block: 0;
+}
+.gc-compact .gc-table:empty {
+  flex: 1;
+  min-height: 0;
 }
 .gc-compact .gc-hand {
   grid-area: hand;
@@ -546,6 +562,30 @@
 }
 .gc-compact .gc-command button {
   min-width: 60px;
+}
+.gc-compact .gc-panel-slot:has([data-panel="menu"], [data-panel="settlement"]) {
+  height: 104px;
+  align-self: start;
+}
+.gc-compact .gc-panel[data-panel="settlement"] {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: 44px 1fr;
+  align-items: center;
+  height: 100%;
+  box-shadow: none;
+}
+.gc-compact [data-panel="settlement"] > .gc-actions {
+  grid-area: 1 / 2;
+}
+.gc-compact [data-panel="settlement"] > div:not(.gc-actions) {
+  grid-column: 1 / -1;
+}
+@media (max-width: 359px) {
+  .gc-compact .gc-panel:not([data-panel="rules"]) {
+    font-size: 12px;
+    line-height: 16px;
+  }
 }
 .gc-compact .gc-panel {
   max-height: none;

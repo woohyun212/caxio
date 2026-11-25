@@ -396,6 +396,7 @@ function Board({
           }
         >
           <Panel
+            compact={!wide}
             kind={panel}
             page={page}
             view={view}

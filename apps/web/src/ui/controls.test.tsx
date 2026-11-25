@@ -1290,3 +1290,35 @@ test("a returned seat announces only an unseen automatic action from this docume
     ).toBe("");
   }
 });
+
+test("compact settlement pages fit the 104px center and visit every public row and the recipient's detail", () => {
+  const view = lastPlaySequence.continuing[3].view;
+  const texts = [
+    "1위 1번 +3칩 → 67칩",
+    "2위 2번 0칩 → 64칩",
+    "3위 3번 −3칩 → 61칩",
+    "배(2가 0장)",
+  ];
+  for (const [page, row] of texts.entries()) {
+    const html = renderToStaticMarkup(
+      <Panel
+        compact
+        kind="settlement"
+        view={view}
+        page={page}
+        setPage={noop}
+        open={noop}
+        close={noop}
+      />,
+    );
+    expect(html).toContain(row);
+    for (const other of texts.filter((t) => t !== row))
+      expect(html).not.toContain(other);
+    expect(html).toMatch(/이전.*다음.*닫기/);
+  }
+  expect(render(props(view, {}, 1))).not.toContain(texts[1] ?? "");
+  expect(styleRule(".gc-compact .gc-center")).toContain("height: 104px");
+  expect(styleRule('.gc-compact .gc-panel[data-panel="settlement"]')).toContain(
+    "grid-template-rows: 44px 1fr",
+  );
+});
