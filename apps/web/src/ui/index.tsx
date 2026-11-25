@@ -250,25 +250,27 @@ function Board({
           )}
         </span>
         <span className="gc-round">R{view.round}</span>
-        <button
-          type="button"
-          aria-pressed={model.muted}
-          onClick={() => props.setMuted(!model.muted)}
-        >
-          {model.muted ? "무음" : "소리"}
-        </button>
-        <button
-          type="button"
-          ref={menu}
-          aria-expanded={!!panel}
-          onClick={(e) => {
-            caller.current = e.currentTarget;
-            if (panel === "menu") close();
-            else open("menu");
-          }}
-        >
-          메뉴
-        </button>
+        <div className="gc-actions">
+          <button
+            type="button"
+            aria-pressed={model.muted}
+            onClick={() => props.setMuted(!model.muted)}
+          >
+            {model.muted ? "무음" : "소리"}
+          </button>
+          <button
+            type="button"
+            ref={menu}
+            aria-expanded={!!panel}
+            onClick={(e) => {
+              caller.current = e.currentTarget;
+              if (panel === "menu") close();
+              else open("menu");
+            }}
+          >
+            메뉴
+          </button>
+        </div>
       </header>
       <div className="gc-scene">
         <Seats view={view} layout={layout} mode={mode} opaque={opaque} />
@@ -340,22 +342,24 @@ function Board({
             <span className="gc-selected">
               {model.selected.length}장 · <span id="gc-preview">{summary}</span>
             </span>
-            <Action
-              className="gc-submit"
-              reason={lock.play}
-              describedBy={reasonId(lock.play)}
-              onClick={() => action("play")}
-            >
-              제출 {model.selected.length}장
-            </Action>
-            <Action
-              className="gc-pass"
-              reason={lock.pass}
-              describedBy={reasonId(lock.pass)}
-              onClick={() => action("pass")}
-            >
-              패스
-            </Action>
+            <div className="gc-actions">
+              <Action
+                className="gc-submit"
+                reason={lock.play}
+                describedBy={reasonId(lock.play)}
+                onClick={() => action("play")}
+              >
+                제출 {model.selected.length}장
+              </Action>
+              <Action
+                className="gc-pass"
+                reason={lock.pass}
+                describedBy={reasonId(lock.pass)}
+                onClick={() => action("pass")}
+              >
+                패스
+              </Action>
+            </div>
           </>
         )}
       </div>
@@ -409,7 +413,7 @@ export const GameControls: GameControlsComponent<ReactElement> = (props) => {
     ...colors,
     "--gc-unit": wide ? "1px" : `${tile.compactScale}px`,
     "--gc-lift": `${tile.selectedLift * (wide ? 1 : tile.compactScale)}px`,
-    "--gc-hit": wide ? `${44 / props.k}px` : "44px",
+    "--gc-hit": wide ? `${Math.ceil(44 / props.k)}px` : "44px",
     ...(wide
       ? {
           zoom: props.k,

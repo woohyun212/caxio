@@ -546,9 +546,10 @@ test("end reason prioritizes the last round, preserves tied ranks and creates a 
     });
   if (!isValidElement<{ children: ReactNode }>(end))
     throw Error("missing ranking");
-  const newRoom = Children.toArray(end.props.children).find(
-    (el) => isValidElement(el) && el.type === Action,
-  );
+  const actions = Children.toArray(end.props.children).at(-1);
+  if (!isValidElement<{ children: ReactNode }>(actions))
+    throw Error("missing end actions");
+  const newRoom = Children.toArray(actions.props.children).at(-1);
   if (!isValidElement<Parameters<typeof Action>[0]>(newRoom))
     throw Error("missing action");
   click(Action(newRoom.props));
@@ -844,4 +845,45 @@ test("wide lobby fits all five seat columns and preserves whole seat words", () 
   expect(render(props(seatReuse.bDisconnected.view))).toContain(
     "2번 복귀 대기",
   );
+});
+
+test("compact status, command, end and page buttons use adjacent 2px action groups", () => {
+  const groups = (html: string) =>
+    Array.from(html.matchAll(/<div class="gc-actions">(.*?)<\/div>/g), (m) =>
+      Array.from(
+        (m[1] ?? "").matchAll(/<button[^>]*>([^<]*)<\/button>/g),
+        (b) => b[1],
+      ),
+    );
+  expect(groups(render(props(follow, {}, 0)))).toEqual([
+    ["소리", "메뉴"],
+    ["제출 2장", "패스"],
+  ]);
+  expect(
+    groups(render(props(gameOverExamples[0].snapshot.view, {}, 0))),
+  ).toContainEqual(["직전 정산", "새 방 만들기"]);
+  const panel = renderToStaticMarkup(
+    <Panel
+      view={follow}
+      kind="rules"
+      page={1}
+      open={noop}
+      setPage={noop}
+      close={noop}
+    />,
+  );
+  expect(groups(panel)).toEqual([["이전", "다음", "닫기"]]);
+  expect(styleRule(".gc-actions")).toContain("gap: 2px");
+  expect(styleRule(".gc-actions")).toContain("justify-content: flex-end");
+});
+test("create room uses the primary ink button on entry and final ranking", () => {
+  for (const view of [null, gameOverExamples[0].snapshot.view])
+    expect(render(props(view))).toMatch(
+      /<button[^>]*class="gc-primary"[^>]*>(?:새 )?방 만들기<\/button>/,
+    );
+  const style = styleRule(
+    '.gc .gc-primary:where(:not([aria-disabled="true"]))',
+  );
+  expect(style).toContain("color: var(--gc-paper)");
+  expect(style).toContain("background: var(--gc-ink)");
 });

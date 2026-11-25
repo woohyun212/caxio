@@ -49,7 +49,12 @@ export function Entry({
   return (
     <div className="gc-entry">
       <h1>caxio</h1>
-      <Action reason={busy} describedBy="gc-entry-status" onClick={createRoom}>
+      <Action
+        className="gc-primary"
+        reason={busy}
+        describedBy="gc-entry-status"
+        onClick={createRoom}
+      >
         방 만들기
       </Action>
       <form
@@ -203,10 +208,10 @@ export function Panel({
       }
     >
       {kind === "menu" ? (
-        <>
+        <div className="gc-actions">
           <Action onClick={() => open("rules")}>족보</Action>
           {s && <Action onClick={() => open("settlement")}>직전 정산</Action>}
-        </>
+        </div>
       ) : kind === "rules" ? (
         <>
           <strong>족보 {page + 1}/3</strong>
@@ -237,7 +242,7 @@ export function Panel({
           </>
         )
       )}
-      <div className="gc-page-actions">
+      <div className="gc-actions">
         {pages > 1 && (
           <>
             <button
@@ -285,15 +290,19 @@ export function EndScreen({
           {r.seatId === seatId ? "▶ 나" : ""}
         </div>
       ))}
-      <button
-        type="button"
-        onClick={(e) => {
-          openSettlement(e.currentTarget);
-        }}
-      >
-        직전 정산
-      </button>
-      <Action onClick={createRoom}>새 방 만들기</Action>
+      <div className="gc-actions">
+        <button
+          type="button"
+          onClick={(e) => {
+            openSettlement(e.currentTarget);
+          }}
+        >
+          직전 정산
+        </button>
+        <Action className="gc-primary" onClick={createRoom}>
+          새 방 만들기
+        </Action>
+      </div>
     </section>
   );
 }
