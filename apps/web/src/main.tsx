@@ -198,6 +198,20 @@ export function GameApp({
   );
 }
 
+export function listenForAudioUnlock(
+  target: EventTarget,
+  audio: Pick<AudioEffects, "unlock">,
+) {
+  const listeners = new AbortController();
+  for (const event of ["click", "keydown"]) {
+    target.addEventListener(event, () => audio.unlock(), {
+      capture: true,
+      signal: listeners.signal,
+    });
+  }
+  return () => listeners.abort();
+}
+
 function bootstrap(element: HTMLElement) {
   document.body.style.margin = "0";
   document.body.style.backgroundColor = `rgb(${palette.ink.join(",")})`;
@@ -212,17 +226,7 @@ function bootstrap(element: HTMLElement) {
     },
     audio,
   );
-  const gesture = new AbortController();
-  for (const event of ["click", "keydown"]) {
-    window.addEventListener(
-      event,
-      () => {
-        gesture.abort();
-        audio.unlock();
-      },
-      { capture: true, signal: gesture.signal },
-    );
-  }
+  const stopAudioUnlock = listenForAudioUnlock(window, audio);
   const scene = createScene();
   const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const root = createRoot(element);
@@ -242,7 +246,7 @@ function bootstrap(element: HTMLElement) {
   import.meta.hot?.dispose(() => {
     window.removeEventListener("resize", render);
     motion.removeEventListener("change", render);
-    gesture.abort();
+    stopAudioUnlock();
     root.unmount();
     session.dispose();
     audio.dispose();

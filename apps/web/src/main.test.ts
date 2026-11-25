@@ -14,6 +14,7 @@ import {
   type Command,
   errorText,
   type Snapshot,
+  WS_PATH,
 } from "@caxio/shared/contracts/wire";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -28,6 +29,7 @@ import {
   browserSocket,
   createScene,
   GameApp,
+  listenForAudioUnlock,
   preview,
   startSession,
 } from "./main";
@@ -321,13 +323,27 @@ test("eliminated spectator has no hand tiles or turn controls", () => {
     expect(html).not.toContain(part);
 });
 
+test("audio unlock retries on keydown and click until cleanup", () => {
+  const target = new EventTarget();
+  const unlock = mock();
+  const stop = listenForAudioUnlock(target, { unlock });
+  target.dispatchEvent(new Event("keydown"));
+  expect(unlock).toHaveBeenCalledTimes(1);
+  target.dispatchEvent(new Event("click"));
+  expect(unlock).toHaveBeenCalledTimes(2);
+  stop();
+  target.dispatchEvent(new Event("keydown"));
+  target.dispatchEvent(new Event("click"));
+  expect(unlock).toHaveBeenCalledTimes(2);
+});
+
 test("development WS proxy uses the supplied origin and is omitted when unset", () => {
   const previous = process.env.CAXIO_DEV_SERVER_ORIGIN;
   const env = { command: "serve", mode: "development" } as const;
   try {
     process.env.CAXIO_DEV_SERVER_ORIGIN = "https://dev.test";
     expect(viteConfig(env).server?.proxy).toEqual({
-      "/ws": { target: "https://dev.test", ws: true },
+      [WS_PATH]: { target: "https://dev.test", ws: true },
     });
     delete process.env.CAXIO_DEV_SERVER_ORIGIN;
     expect(viteConfig(env).server?.proxy).toBeUndefined();
