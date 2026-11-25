@@ -181,13 +181,19 @@ async function atTable(
   }
 }
 function clock() {
-  const callbacks: (() => void)[] = [];
+  const timers: { delay: number; fire: () => void; cancelled: boolean }[] = [];
   return {
     time: epoch,
-    callbacks,
-    schedule(_delay: number, cb: () => void) {
-      callbacks.push(cb);
-      return () => {};
+    timers,
+    get callbacks() {
+      return timers.map((timer) => timer.fire);
+    },
+    schedule(delay: number, fire: () => void) {
+      const timer = { delay, fire, cancelled: false };
+      timers.push(timer);
+      return () => {
+        timer.cancelled = true;
+      };
     },
   };
 }
@@ -643,6 +649,128 @@ for (const closeFirst of [true, false]) {
     );
   });
 }
+
+async function withFailedTurnTimer(
+  check: (
+    table: Table,
+    before: Snapshot,
+    fake: ReturnType<typeof clock>,
+    fireWithClockFault: () => void,
+  ) => Promise<void>,
+) {
+  const fake = clock();
+  const failure = Error("turn clock failed");
+  const report = spyOn(console, "error").mockImplementation(() => {});
+  let fault = false;
+  let throws = 0;
+  function fireWithClockFault() {
+    fault = true;
+    need(fake.timers.at(-1)).fire();
+    throws++;
+    expect(report.mock.calls).toHaveLength(throws);
+    expect(report.mock.calls.at(-1)?.[1]).toBe(failure);
+  }
+  try {
+    await atTable(
+      {
+        now() {
+          if (fault) {
+            fault = false;
+            throw failure;
+          }
+          return fake.time;
+        },
+        schedule: fake.schedule,
+      },
+      async (table) => {
+        await table.lobby(3);
+        const before = need((await table.start())[0]);
+        fake.time = need(before.view.deadline);
+        expect(fake.timers).toHaveLength(1);
+        fireWithClockFault();
+        expect(fake.timers.map((timer) => timer.delay)).toEqual([
+          DEFAULT_TURN_LIMIT_MS,
+          1000,
+        ]);
+        // Ordered replies on every socket expose any snapshot sent by the failed attempt.
+        await Promise.all(
+          table.seats.map((c) => c.reject("?", "INVALID_MESSAGE")),
+        );
+        expect((await table.replace(0)).frame).toEqual({
+          ...before,
+          serverNow: fake.time,
+        });
+        await check(table, before, fake, fireWithClockFault);
+        expect(report.mock.calls).toHaveLength(throws);
+      },
+    );
+  } finally {
+    report.mockRestore();
+  }
+}
+
+async function expectAutomaticPlay(table: Table, before: Snapshot) {
+  for (const frame of await table.snapshots()) {
+    expect(frame.revision).toBe(before.revision + 1);
+    expect(frame.view.turnId).toBe(need(before.view.turnId) + 1);
+    expect(frame.view.lastAction).toEqual({
+      type: "PLAY",
+      seatId: need(before.view.currentTurn),
+      turnId: need(before.view.turnId),
+      automatic: true,
+    });
+  }
+}
+
+async function expireByRequest(table: Table, before: Snapshot) {
+  const actor = need(table.seats[need(before.view.currentTurn)]);
+  actor.send({ type: "PASS", turnId: before.view.turnId });
+  await expectAutomaticPlay(table, before);
+  expect(await actor.next()).toEqual({ type: "ERROR", code: "TIME_EXPIRED" });
+}
+
+test("turn timer retry recovers the expired turn exactly once", async () => {
+  await withFailedTurnTimer(async (table, before, fake) => {
+    const retry = need(fake.timers[1]);
+    retry.fire();
+    await expectAutomaticPlay(table, before);
+    retry.fire();
+    need(fake.timers[0]).fire();
+    await Promise.all(table.seats.map((c) => c.reject("?", "INVALID_MESSAGE")));
+    expect((await table.replace(0)).frame.revision).toBe(before.revision + 1);
+  });
+});
+
+test("late request cancels the turn timer retry and commits once", async () => {
+  await withFailedTurnTimer(async (table, before, fake) => {
+    const retry = need(fake.timers[1]);
+    expect(retry.cancelled).toBe(false);
+    await expireByRequest(table, before);
+    expect(retry.cancelled).toBe(true);
+    retry.fire();
+    await Promise.all(table.seats.map((c) => c.reject("?", "INVALID_MESSAGE")));
+    expect((await table.replace(0)).frame.revision).toBe(before.revision + 1);
+  });
+});
+
+test("turn timer retry reports a second failure and leaves expiry to a request", async () => {
+  await withFailedTurnTimer(async (table, before, fake, fireWithClockFault) => {
+    fireWithClockFault();
+    expect(fake.timers).toHaveLength(2);
+    await expireByRequest(table, before);
+  });
+});
+
+test("server stop cancels the pending turn timer retry", async () => {
+  await withFailedTurnTimer(async (table, _before, fake) => {
+    const retry = need(fake.timers[1]);
+    expect(retry.cancelled).toBe(false);
+    await table.server.stop();
+    expect(retry.cancelled).toBe(true);
+    retry.fire();
+    expect(fake.timers).toHaveLength(2);
+  });
+});
 
 test("server contains and reports failures in receive, timeout and close while other rooms keep serving", async () => {
   const fake = clock();
