@@ -9,7 +9,7 @@ import type { TableProps } from "../contracts";
 import { atlases, backRect, tileRect } from "../visual/assets";
 import { layout } from "../visual/layout";
 import { frame, motion, stage } from "../visual/tokens";
-import { TableLifecycle } from "./index";
+import { TableLifecycle, watchCanvasPhase } from "./index";
 import {
   advance,
   damp,
@@ -242,6 +242,52 @@ test("face and back texel centres, phase correction", () => {
         dpr === 1.25 && k < 4 ? "translate(0.015625px, 0.015625px)" : "none",
       );
 });
+test.each([1, 4])(
+  "canvas phase at k=%i follows current resolution and resize until cleanup",
+  (k) => {
+    const queries: { query: string; events: EventTarget }[] = [];
+    const viewport = Object.assign(new EventTarget(), {
+      devicePixelRatio: 1,
+      matchMedia(query: string) {
+        const events = new EventTarget();
+        queries.push({ query, events });
+        return events;
+      },
+    });
+    const style = { imageRendering: "", transform: "" };
+    const cleanup = watchCanvasPhase(style, k, viewport);
+    const translated = "translate(0.015625px, 0.015625px)";
+    expect(style).toEqual({ imageRendering: "pixelated", transform: "none" });
+    for (const [i, dpr] of [1.25, 2].entries()) {
+      const oldQuery = need(queries[i]).events;
+      viewport.devicePixelRatio = dpr;
+      oldQuery.dispatchEvent(new Event("change"));
+      expect(style.transform).toBe(
+        k === 1 && dpr === 1.25 ? translated : "none",
+      );
+      expect(need(queries[i + 1]).query).toBe(`(resolution: ${dpr}dppx)`);
+      oldQuery.dispatchEvent(new Event("change"));
+      expect(queries).toHaveLength(i + 2);
+    }
+    viewport.devicePixelRatio = 1.125;
+    viewport.dispatchEvent(new Event("resize"));
+    expect(style.transform).toBe(translated);
+    expect(queries.map((q) => q.query)).toEqual([
+      "(resolution: 1dppx)",
+      "(resolution: 1.25dppx)",
+      "(resolution: 2dppx)",
+      "(resolution: 1.125dppx)",
+    ]);
+    need(queries[2]).events.dispatchEvent(new Event("change"));
+    expect(queries).toHaveLength(4);
+    cleanup();
+    viewport.devicePixelRatio = 1;
+    viewport.dispatchEvent(new Event("resize"));
+    need(queries[3]).events.dispatchEvent(new Event("change"));
+    expect(style.transform).toBe(translated);
+    expect(queries).toHaveLength(4);
+  },
+);
 test("initialization, display and terminal failure use one-shot notifications", () => {
   for (const scenario of [
     "preflight",

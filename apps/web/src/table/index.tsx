@@ -27,6 +27,31 @@ const defaults: TableDependencies = {
     new T.WebGLRenderer({ canvas, alpha: false, antialias: false }),
 };
 
+export function watchCanvasPhase(
+  style: Pick<CSSStyleDeclaration, "imageRendering" | "transform">,
+  k: number,
+  viewport: EventTarget & {
+    readonly devicePixelRatio: number;
+    matchMedia(query: string): EventTarget;
+  },
+) {
+  let media: EventTarget;
+  const update = () => {
+    media?.removeEventListener("change", update);
+    const dpr = viewport.devicePixelRatio;
+    style.imageRendering = "pixelated";
+    style.transform = phaseTransform(k, dpr);
+    media = viewport.matchMedia(`(resolution: ${dpr}dppx)`);
+    media.addEventListener("change", update);
+  };
+  update();
+  viewport.addEventListener("resize", update);
+  return () => {
+    viewport.removeEventListener("resize", update);
+    media.removeEventListener("change", update);
+  };
+}
+
 export class TableLifecycle {
   failed = false;
   displayed = false;
@@ -183,19 +208,9 @@ function Table({
     canvas.setAttribute("aria-hidden", "true");
     canvas.style.pointerEvents = "none";
     const unwatch = life.watchContext(canvas);
-    let media: MediaQueryList;
-    const update = () => {
-      media?.removeEventListener("change", update);
-      canvas.style.imageRendering = "pixelated";
-      canvas.style.transform = phaseTransform(props.k, window.devicePixelRatio);
-      media = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
-      media.addEventListener("change", update);
-    };
-    update();
-    window.addEventListener("resize", update);
+    const stopPhase = watchCanvasPhase(canvas.style, props.k, window);
     return () => {
-      media.removeEventListener("change", update);
-      window.removeEventListener("resize", update);
+      stopPhase();
       unwatch();
     };
   }, [canvas, props.k, life]);
