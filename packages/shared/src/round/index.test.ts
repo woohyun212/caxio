@@ -91,6 +91,7 @@ function checkDeck(state: GameState, max: MaxNumber, size: number) {
     leader,
     leader,
   ]);
+  return leader;
 }
 for (const [order, max, size] of sizes) {
   test(`A1: ${order.length} seats receive the full deck in their fixed slots`, () => {
@@ -120,13 +121,33 @@ test("A1: first deal matches the frozen state, including default rounds", () => 
     ),
   ).toEqual(firstDealState);
 });
-test("Same RNG sequence reproduces the deal and changing it changes hands", () => {
-  function sequence(seed: number) {
-    return () => {
-      seed = (seed * 17 + 3) % 97;
-      return seed / 97;
+function sequence(seed: number) {
+  return () => {
+    seed = (seed * 17 + 3) % 97;
+    return seed / 97;
+  };
+}
+for (const [order, max, size] of sizes) {
+  test(`A1: every seat can lead the first and next ${order.length}-seat deal`, () => {
+    const firstHolders = new Set<SeatId>();
+    const nextHolders = new Set<SeatId>();
+    const settled: GameState = {
+      ...rules.startRound(order, identityShuffle),
+      phase: "ROUND_SETTLEMENT",
+      currentTurn: null,
     };
-  }
+    for (let seed = 0; seed <= 8; seed++) {
+      const first = rules.startRound(order, sequence(seed));
+      firstHolders.add(checkDeck(first, max, size));
+      const next = rules.advance(settled, sequence(seed));
+      nextHolders.add(checkDeck(next, max, size));
+      expect(next).toEqual(rules.advance(settled, sequence(seed)));
+    }
+    expect(firstHolders).toEqual(new Set(order));
+    expect(nextHolders).toEqual(new Set(order));
+  });
+}
+test("Same RNG sequence reproduces the deal and changing it changes hands", () => {
   const deal = (seed: number) => rules.startRound([3, 1, 2, 4], sequence(seed));
   expect(deal(1)).toEqual(deal(1));
   expect(deal(2).players).not.toEqual(deal(1).players);
@@ -248,6 +269,83 @@ test("A3: a passer can beat a later play in the same trick", () => {
     lastPlay: next.lastPlay,
   });
 });
+test("A3: plays and passes wrap around an interleaved OUT seat", () => {
+  const room = rules.startRound([3, 1, 0, 2], identityShuffle);
+  const eliminated = room.players[1];
+  if (!eliminated) throw new Error("Missing eliminated player");
+  const players: [...GameState["players"]] = [...room.players];
+  players[1] = {
+    ...eliminated,
+    chips: 0,
+    isOut: true,
+    eliminatedRound: 1,
+    eliminatedEffectiveTiles: 8,
+  };
+  const deal = rules.advance(
+    {
+      ...room,
+      phase: "ROUND_SETTLEMENT",
+      currentTurn: null,
+      players,
+      activePlayers: [3, 0, 2],
+    },
+    identityShuffle,
+  );
+  let state = rules.advance(deal, noShuffle);
+  expect([state.round, state.currentTurn]).toEqual([2, 3]);
+  state = accept(state, play(tile(3)));
+  expect(state.currentTurn).toBe(0);
+  state = accept(state, play(tile(4)));
+  expect(state.currentTurn).toBe(2);
+  state = accept(state, play(tile(7)));
+  expect(state.currentTurn).toBe(3);
+  state = accept(state, pass);
+  expect(state).toMatchObject({
+    currentTurn: 0,
+    consecutivePasses: 1,
+    tableHand: [tile(7)],
+  });
+  state = accept(state, pass);
+  expect(state).toMatchObject({
+    currentTurn: 2,
+    consecutivePasses: 0,
+    tableHand: null,
+  });
+});
+test("A3: winning on a follow play settles immediately", () => {
+  const settle = mock(settlement.settle);
+  const engine = createRoundRules(hands, { ...settlement, settle });
+  const players: [...GameState["players"]] = [...lead.players];
+  players[1] = { ...firstDealState.players[1], hand: [tile(4)] };
+  const following = accept({ ...lead, players }, play(tile(3)), false, engine);
+  const won = accept(following, play(tile(4)), false, engine);
+  expect(settle).toHaveBeenCalledTimes(1);
+  const winning = settle.mock.calls[0]?.[0];
+  expect(winning).toMatchObject({
+    phase: "ROUND_SETTLEMENT",
+    currentTurn: null,
+    turnId: following.turnId,
+    tableHand: [tile(4)],
+    lastPlayedBy: 1,
+    lastPlay: { seatId: 1, turnId: following.turnId, tiles: [tile(4)] },
+    lastAction: {
+      seatId: 1,
+      turnId: following.turnId,
+      type: "PLAY",
+      automatic: false,
+    },
+  });
+  expect(winning?.players[1]?.hand).toEqual([]);
+  expect(settle.mock.results[0]?.value).toBe(won);
+});
+test("A3: accepted three-argument PLAY and PASS default to manual", () => {
+  const played = rules.applyTurn(lead, 0, play(tile(3)));
+  if (!played.ok) throw new Error(played.code);
+  const passed = rules.applyTurn(played.state, 1, pass);
+  if (!passed.ok) throw new Error(passed.code);
+  expect(played.state.lastAction?.automatic).toBe(false);
+  expect(passed.state.lastAction?.automatic).toBe(false);
+});
 for (const [order] of sizes) {
   test(`A3: ${order.length} active seats clear only on pass M−1 and retain lastPlay`, () => {
     let state = rules.advance(
@@ -332,6 +430,38 @@ test("A3: timeout plays the lowest ranked single or passes automatically", () =>
     automatic: true,
   });
 });
+for (const [order, max] of sizes) {
+  if (max === 9) continue;
+  test(`A3: timeout and both classifications use the ${max}-number deck`, () => {
+    const rankTile = mock(hands.rankTile);
+    const classify = mock(hands.classify);
+    const engine = createRoundRules(
+      { ...hands, rankTile, classify },
+      settlement,
+    );
+    // In these deals cloud 12 precedes cloud 3 in the leader's hand.
+    const start = engine.startRound(order, sequence(max === 13 ? 8 : 16));
+    const state = engine.advance(start, noShuffle);
+    if (state.currentTurn === null) throw new Error("Missing leader");
+    const hand = state.players[state.currentTurn]?.hand;
+    if (!hand) throw new Error("Missing leader hand");
+    const timeout = engine.timeoutAction(state);
+    expect(timeout).toEqual(play(tile(3)));
+    for (const t of hand) expect(rankTile).toHaveBeenCalledWith(t, max);
+    expect(rankTile.mock.calls.every(([, n]) => n === max)).toBe(true);
+    const following = accept(state, timeout, true, engine);
+    if (following.currentTurn === null) throw new Error("Missing follower");
+    const challenger = following.players[following.currentTurn]?.hand.find(
+      (t) => t.number > 3,
+    );
+    if (!challenger) throw new Error("Missing higher single");
+    classify.mockClear();
+    accept(following, play(challenger), false, engine);
+    expect(classify).toHaveBeenCalledWith([challenger], max);
+    expect(classify).toHaveBeenCalledWith([tile(3)], max);
+    expect(classify.mock.calls.every(([, n]) => n === max)).toBe(true);
+  });
+}
 
 test("A3/A5: turn IDs span a full round, one settlement and the next lead", () => {
   const settle = mock(settlement.settle);
