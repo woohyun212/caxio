@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "dev": "bun run --filter '@caxio/*' dev",
-    "lint": "biome check .",
+    "lint": "biome check --error-on-warnings .",
     "format": "biome check --write .",
     "typecheck": "bun run --filter '@caxio/*' typecheck",
     "test": "bun test",
