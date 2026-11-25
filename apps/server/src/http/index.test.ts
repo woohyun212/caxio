@@ -277,6 +277,40 @@ test("two clients keep separate connections, ordered frames and private replies 
   expect(received).toHaveLength(3);
 });
 
+test("4096 UTF-8 bytes reach the room and 4097 close only the sending socket", async () => {
+  const sender = await openSocket();
+  const peer = await openSocket();
+  const boundary = "é".repeat(2048);
+  const oversized = `${boundary}!`;
+  expect(Buffer.byteLength(boundary)).toBe(4096);
+  expect(Buffer.byteLength(oversized)).toBe(4097);
+
+  sender.ws.send(boundary);
+  await until(() => sender.messages.length > 0);
+  expect(sender.messages).toEqual([JSON.stringify(reply)]);
+  expect(received[0]?.frame).toBe(boundary);
+
+  let sawClose = false;
+  sender.ws.onclose = () => {
+    sawClose = true;
+  };
+  sender.ws.send(oversized);
+  await until(() => sawClose && closed.length > 0);
+  expect(closed[0]).toBe(received[0]?.connection);
+
+  peer.ws.send("still connected");
+  await until(() => peer.messages.length > 0);
+  expect(peer.messages).toEqual([JSON.stringify(reply)]);
+  await server.stop();
+  expect(received.map((event) => event.frame)).toEqual([
+    boundary,
+    "still connected",
+  ]);
+  expect(closed).toHaveLength(2);
+  expect(closed[1]).toBe(received[1]?.connection);
+  expect(closed[1]).not.toBe(closed[0]);
+});
+
 test("a non-upgraded WebSocket request has no room lifecycle", async () => {
   await mkdir(root);
   await writeFile(join(root, WS_PATH), "shadow");

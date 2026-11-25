@@ -66,6 +66,7 @@ export const startHttpServer: StartHttpServer = (
       return serveFile(staticRoot, pathname, request);
     },
     websocket: {
+      maxPayloadLength: 4096,
       open(ws) {
         ws.data.connection = {
           send(message) {
