@@ -1,0 +1,13 @@
+{
+  "name": "@caxio/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@caxio/engine": "workspace:*"
+  }
+}
