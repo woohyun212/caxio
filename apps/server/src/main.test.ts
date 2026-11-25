@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { rules } from "@caxio/shared";
@@ -24,6 +24,7 @@ import {
   type Snapshot,
   WS_PATH,
 } from "@caxio/shared/contracts/wire";
+import { DEFAULT_TURN_LIMIT_MS } from "./contracts";
 import actions from "./fixtures/four-player-actions.json";
 import { makeRandom, seed } from "./fixtures/four-player-seed";
 import { startGameServer } from "./main";
@@ -243,6 +244,42 @@ for (const timerFirst of [false, true]) {
     });
   }
 }
+
+test("A6 five-minute turn limit reaches every seat and expires at the configured deadline", async () => {
+  const fake = clock();
+  const turnTimeoutMs = 300_000;
+  await atTable(
+    { now: () => fake.time, schedule: fake.schedule, turnTimeoutMs },
+    async (table) => {
+      await table.lobby(3);
+      const opening = await table.start();
+      for (const frame of opening) {
+        expect(frame.view.phase).toBe("TURN_ACTIVE");
+        expect(frame.view.deadline).toBe(frame.serverNow + turnTimeoutMs);
+      }
+      const first = need(opening[0]);
+      fake.time = first.serverNow + DEFAULT_TURN_LIMIT_MS;
+      need(fake.callbacks.at(-1))();
+      expect((await table.replace(0)).frame).toEqual({
+        ...first,
+        serverNow: fake.time,
+      });
+
+      fake.time = need(first.view.deadline);
+      need(fake.callbacks.at(-1))();
+      for (const frame of await table.snapshots()) {
+        expect(frame.serverNow).toBe(fake.time);
+        expect(frame.revision).toBe(first.revision + 1);
+        expect(frame.view.lastAction).toEqual({
+          type: "PLAY",
+          seatId: need(first.view.currentTurn),
+          turnId: need(first.view.turnId),
+          automatic: true,
+        });
+      }
+    },
+  );
+});
 
 test("A6 frozen validation precedence, binary and extra-key tile preserve state and revision", async () => {
   const fake = clock();
@@ -698,61 +735,79 @@ test("source import stays idle and direct run requires a valid PORT", () => {
   }
 });
 
-test("direct bundle serves sibling web/dist, health and WebSocket on the assigned port", async () => {
-  const scratch = resolve(import.meta.dir, "../../../.omc");
-  await mkdir(scratch, { recursive: true });
-  const dir = await mkdtemp(join(scratch, "bundle-"));
-  try {
-    const bundle = join(dir, "server/main.js"),
-      dist = join(dir, "web/dist");
-    await mkdir(dist, { recursive: true });
-    await Bun.write(join(dist, "index.html"), "bundle layout check");
-    const build = spawnSync(
-      process.execPath,
-      [
-        "build",
-        resolve(import.meta.dir, "main.ts"),
-        "--target=bun",
-        `--outfile=${bundle}`,
-      ],
-      { encoding: "utf8" },
-    );
-    expect(build.status).toBe(0);
-    const child = spawn(process.execPath, [bundle], {
-      env: { ...process.env, PORT: "0" },
-      cwd: dir,
-      stdio: ["ignore", "pipe", "inherit"],
-    });
-    const exit = new Promise<void>((resolve, reject) => {
-      child.once("error", reject);
-      child.once("exit", () => resolve());
-    });
-    const timeout = setTimeout(() => child.kill(), 3000);
-    let client: Client | undefined;
+test.each(["source", "bundle"] as const)(
+  "direct %s entry serves its default web/dist, health and WebSocket on the assigned port",
+  async (layout) => {
+    const scratch = resolve(import.meta.dir, "../../../.omc");
+    await mkdir(scratch, { recursive: true });
+    const dir = await mkdtemp(join(scratch, `${layout}-`));
     try {
-      const lines = createInterface({ input: child.stdout });
-      const first = await lines[Symbol.asyncIterator]().next();
-      expect(first.done).toBe(false);
-      const url = need(
-        first.value?.match(/^listening on (http:\/\/\S+)$/)?.[1],
+      const appRoot = layout === "source" ? join(dir, "apps") : dir;
+      const dist = join(appRoot, "web/dist");
+      const entry = join(
+        appRoot,
+        layout === "source" ? "server/src/main.ts" : "server/main.js",
       );
-      const html = await fetch(url),
-        health = await fetch(new URL("/healthz", url));
-      expect([html.status, health.status]).toEqual([200, 200]);
-      expect(await html.text()).toBe("bundle layout check");
-      client = new Client(url);
-      await client.opened;
-      expect((await client.bind({ type: "CREATE_ROOM" })).view.phase).toBe(
-        "LOBBY",
-      );
+      await mkdir(dist, { recursive: true });
+      await Bun.write(join(dist, "index.html"), "layout check");
+      if (layout === "source") {
+        await cp(import.meta.dir, join(appRoot, "server/src"), {
+          recursive: true,
+        });
+        await symlink(
+          resolve(import.meta.dir, "../node_modules"),
+          join(appRoot, "server/node_modules"),
+          "dir",
+        );
+      } else {
+        const build = spawnSync(
+          process.execPath,
+          [
+            "build",
+            resolve(import.meta.dir, "main.ts"),
+            "--target=bun",
+            `--outfile=${entry}`,
+          ],
+          { encoding: "utf8" },
+        );
+        expect(build.status).toBe(0);
+      }
+      const child = spawn(process.execPath, [entry], {
+        env: { ...process.env, PORT: "0" },
+        cwd: dir,
+        stdio: ["ignore", "pipe", "inherit"],
+      });
+      const exit = new Promise<void>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("exit", () => resolve());
+      });
+      const timeout = setTimeout(() => child.kill(), 3000);
+      let client: Client | undefined;
+      try {
+        const lines = createInterface({ input: child.stdout });
+        const first = await lines[Symbol.asyncIterator]().next();
+        expect(first.done).toBe(false);
+        const url = need(
+          first.value?.match(/^listening on (http:\/\/\S+)$/)?.[1],
+        );
+        const html = await fetch(url),
+          health = await fetch(new URL("/healthz", url));
+        expect([html.status, health.status]).toEqual([200, 200]);
+        expect(await html.text()).toBe("layout check");
+        client = new Client(url);
+        await client.opened;
+        expect((await client.bind({ type: "CREATE_ROOM" })).view.phase).toBe(
+          "LOBBY",
+        );
+      } finally {
+        client?.ws.close();
+        child.kill();
+        clearTimeout(timeout);
+        await exit;
+        await client?.closed;
+      }
     } finally {
-      client?.ws.close();
-      child.kill();
-      clearTimeout(timeout);
-      await exit;
-      await client?.closed;
+      await rm(dir, { recursive: true, force: true });
     }
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-});
+  },
+);
