@@ -16,11 +16,15 @@ interface Options {
   schedule?: RoomDependencies["schedule"];
 }
 
+const TIMER_RETRY_DELAY_MS = 1000;
+
 function contain(operation: () => void) {
   try {
     operation();
+    return true;
   } catch (error) {
     console.error("Game server event failed", error);
+    return false;
   }
 }
 
@@ -52,6 +56,16 @@ export function startGameServer({
     );
   const timers = new Set<() => void>();
   let stopped = false;
+  function scheduleOnce(delay: number, callback: () => void) {
+    const cancelTimer = schedule(delay, () => {
+      if (timers.delete(cancel) && !stopped) contain(callback);
+    });
+    function cancel() {
+      if (timers.delete(cancel)) cancelTimer();
+    }
+    timers.add(cancel);
+    return cancel;
+  }
   const room = createRoomService({
     rules,
     dealRng: random,
@@ -62,15 +76,11 @@ export function startGameServer({
     newToken: randomUUID,
     now,
     schedule(delay, callback) {
-      const cancel = schedule(delay, () => {
-        timers.delete(cancel);
-        if (!stopped) contain(callback);
+      let cancel = scheduleOnce(delay, () => {
+        if (!contain(callback) && !stopped)
+          cancel = scheduleOnce(TIMER_RETRY_DELAY_MS, callback);
       });
-      timers.add(cancel);
-      return () => {
-        timers.delete(cancel);
-        cancel();
-      };
+      return () => cancel();
     },
     send: (connection, message) => connection.send(message),
     turnLimitMs: turnTimeoutMs,
