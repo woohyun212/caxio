@@ -83,7 +83,12 @@ const Table = createGameTable({
     );
   },
 });
-function show(k: number, asSheet: boolean, selected = false) {
+function show(
+  k: number,
+  asSheet: boolean,
+  selected = false,
+  reducedMotion = true,
+) {
   sheetMode = asSheet;
   root.render(
     <StrictMode>
@@ -92,7 +97,7 @@ function show(k: number, asSheet: boolean, selected = false) {
         layout={loadLayout}
         k={k}
         selected={selected ? (loadView.ownHand?.slice(0, 1) ?? []) : []}
-        reducedMotion
+        reducedMotion={reducedMotion}
         onReady={() => {
           ready++;
         }}
@@ -141,10 +146,18 @@ async function capture() {
     const res = await fetch(`/capture/${name}`, { method: "POST", body: buf });
     if (!res.ok) throw Error("Capture storage failed");
   }
+  const canvas = gl.domElement;
+  const box = canvas.getBoundingClientRect();
   return {
     calls: gl.info.render.calls,
     dither: ctx.isEnabled(ctx.DITHER),
     transform: gl.domElement.style.transform,
+    canvas: {
+      ariaHidden: canvas.getAttribute("aria-hidden"),
+      pointerEvents: getComputedStyle(canvas).pointerEvents,
+      width: box.width,
+      height: box.height,
+    },
     gpu: ctx.getParameter(
       ctx.getExtension("WEBGL_debug_renderer_info")?.UNMASKED_RENDERER_WEBGL ??
         ctx.RENDERER,

@@ -232,9 +232,14 @@ try {
     if (s?.failure) throw Error("GameTable failed");
     return s?.ready ? s : undefined;
   }, "first display");
-  async function settle(k: number, sheet: boolean, selected = false) {
+  async function settle(
+    k: number,
+    sheet: boolean,
+    selected = false,
+    reducedMotion = true,
+  ) {
     const count = await evaluate<number>("probe.status().frames");
-    await evaluate(`probe.show(${[k, sheet, selected].join(",")})`);
+    await evaluate(`probe.show(${k},${sheet},${selected},${reducedMotion})`);
     await until(async () => {
       const s = await evaluate<{ frames: number; width: number; k: number }>(
         "probe.status()",
@@ -251,6 +256,12 @@ try {
     calls: number;
     dither: boolean;
     transform: string;
+    canvas: {
+      ariaHidden: string | null;
+      pointerEvents: string;
+      width: number;
+      height: number;
+    };
     gpu: string;
   };
   async function capture(name: string, k: number) {
@@ -279,6 +290,14 @@ try {
     requireCheck(
       meta.calls <= 150 && !meta.dither,
       `${name} draw calls/DITHER`,
+    );
+    const canvas = meta.canvas;
+    requireCheck(
+      canvas.ariaHidden === "true" &&
+        canvas.pointerEvents === "none" &&
+        canvas.width === width * k &&
+        canvas.height === height * k,
+      `${name} canvas accessibility/size`,
     );
     return { logical, copy, physical, meta };
   }
@@ -383,6 +402,34 @@ try {
       if (label === "selected" || key !== "underline")
         requireCheck(m.pixels > 0 && !m.difference, `${label} ${key}`);
   await settle(3, false);
+  const startFrames = (await status()).frames;
+  await settle(3, false, true, false);
+  // A five-pixel lift at the frozen selection rate reaches the snap threshold within one second.
+  await Bun.sleep(1000);
+  const settledFrames = (await status()).frames;
+  const idleStart = performance.now();
+  await Bun.sleep(1100);
+  const endFrames = (await status()).frames;
+  const idleMs = performance.now() - idleStart;
+  const damped = await capture("selected-damped", 3);
+  const differingBytes = damped.logical.data.reduce(
+    (count, byte, i) => count + Number(byte !== selected.logical.data[i]),
+    0,
+  );
+  const dampedMotion = {
+    startFrames,
+    settledFrames,
+    endFrames,
+    idleMs,
+    differingBytes,
+  };
+  requireCheck(settledFrames - startFrames > 1, "damped selection frame count");
+  requireCheck(
+    endFrames === settledFrames && idleMs >= 1000,
+    "damped selection at rest",
+  );
+  requireCheck(differingBytes === 0, "damped selection RGBA");
+  await settle(3, false);
   const timing = [];
   for (let i = 0; i < 3; i++) {
     const r = await evaluate<{
@@ -459,6 +506,7 @@ try {
     lift,
     still: { start, end, stillLogical, stillPhysical },
     movement,
+    dampedMotion,
     anchors,
     maxCalls,
     dither: before.meta.dither,
