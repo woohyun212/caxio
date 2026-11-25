@@ -1,0 +1,299 @@
+import type { PlayerView } from "@caxio/shared/contracts/wire";
+import { type ReactNode, useRef, useState } from "react";
+import type { GameControlsProps } from "../contracts";
+import { seatLabel } from "../visual/layout";
+import { activate, enterCode, outage } from "./state";
+
+export function Action({
+  children,
+  reason = "",
+  describedBy,
+  onClick,
+  className,
+}: {
+  children: ReactNode;
+  reason?: string;
+  describedBy?: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-disabled={reason ? true : undefined}
+      aria-describedby={reason ? describedBy : undefined}
+      onClick={() => activate(reason, onClick)}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function Entry({
+  model,
+  createRoom,
+  joinRoom,
+  resume,
+  message,
+}: Pick<GameControlsProps, "model" | "createRoom" | "joinRoom" | "resume"> & {
+  message: string;
+}) {
+  const [code, setCode] = useState(""),
+    [invalid, setInvalid] = useState(false);
+  const busy =
+    outage(model) ||
+    (model.pending || model.connection === "CONNECTING"
+      ? "서버 응답 대기"
+      : "");
+  return (
+    <div className="gc-entry">
+      <h1>caxio</h1>
+      <Action reason={busy} describedBy="gc-entry-status" onClick={createRoom}>
+        방 만들기
+      </Action>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!busy) setInvalid(!enterCode(code, joinRoom));
+        }}
+      >
+        <label htmlFor="gc-code">방 코드</label>
+        <input
+          id="gc-code"
+          value={code}
+          onChange={(e) => {
+            setCode(e.target.value);
+            setInvalid(false);
+          }}
+          aria-invalid={invalid}
+          autoCapitalize="characters"
+          spellCheck={false}
+        />
+        <button
+          type="submit"
+          aria-disabled={busy ? true : undefined}
+          aria-describedby={busy ? "gc-entry-status" : undefined}
+        >
+          입장
+        </button>
+      </form>
+      {model.credential && model.connection === "DISCONNECTED" && (
+        <Action onClick={resume}>자리 복구</Action>
+      )}
+      <div id="gc-entry-status">{busy}</div>
+      <div aria-live="polite">
+        {message || (invalid ? "6자리 방 코드를 확인해 주세요." : "") || busy}
+      </div>
+    </div>
+  );
+}
+export function Lobby({
+  model,
+  view,
+  startGame,
+  message,
+}: {
+  model: GameControlsProps["model"];
+  view: Extract<PlayerView, { phase: "LOBBY" }>;
+  startGame: () => void;
+  message: string;
+}) {
+  const code = useRef<HTMLInputElement>(null);
+  const offline = view.seatOrder.find((id) => !view.slots[id]?.isConnected);
+  const host = view.hostSeatId === model.seatId;
+  const reason =
+    outage(model) ||
+    (model.pending
+      ? "서버 응답 대기"
+      : view.canStart
+        ? ""
+        : offline === undefined
+          ? "한 명 더 필요"
+          : `${seatLabel(offline)} 복귀 대기`);
+  return (
+    <section className="gc-lobby">
+      <label>
+        방 코드{" "}
+        <input
+          ref={code}
+          value={model.credential?.roomCode ?? ""}
+          readOnly
+          onFocus={(e) => e.target.select()}
+        />
+      </label>
+      <Action
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(code.current?.value ?? "");
+          } catch {
+            code.current?.focus();
+            code.current?.select();
+          }
+        }}
+      >
+        복사
+      </Action>
+      <div className="gc-lobby-seats">
+        {view.slots.map((s, id) => (
+          <div key={seatLabel(id)}>
+            {seatLabel(id)}{" "}
+            {s ? (s.isConnected ? "접속" : "복귀 대기") : "빈자리"}{" "}
+            {id === view.hostSeatId ? "방장" : ""}{" "}
+            {id === model.seatId ? "나" : ""}
+          </div>
+        ))}
+      </div>
+      <div id="gc-start-reason">
+        {host ? reason : "방장의 시작을 기다려 주세요"}
+      </div>
+      {host && (
+        <Action
+          onClick={startGame}
+          reason={reason}
+          describedBy="gc-start-reason"
+        >
+          시작
+        </Action>
+      )}
+      <div aria-live="polite">
+        {message ||
+          (view.hostSeatId !== null
+            ? `${seatLabel(view.hostSeatId)}이 방장이에요`
+            : "")}
+      </div>
+    </section>
+  );
+}
+
+export type PanelKind = "menu" | "rules" | "settlement";
+const rules = [
+  "숫자 3..N<1<2 · 구름<별<달<해 · 1·2·3·5장",
+  "스트레이트<플러시<풀하우스<포카드<스트레이트 플러시 · 플러시는 숫자 먼저",
+  "일반 3..7부터 (N−4)..N · 특수 1·2·3·4·5, 2·3·4·5·6 · (N−3)..N 다음 1 허용 · (N−2)..N 다음 1·2 금지 · 남은 장수×2^(남은 2의 수)",
+];
+export function Panel({
+  kind,
+  page,
+  view,
+  open,
+  setPage,
+  close,
+}: {
+  kind: PanelKind;
+  page: number;
+  view: PlayerView;
+  open: (kind: PanelKind) => void;
+  setPage: (n: number) => void;
+  close: () => void;
+}) {
+  const s = view.lastSettlement,
+    own = view.ownSettlement;
+  const pages =
+    kind === "rules"
+      ? 3
+      : kind === "settlement" && s
+        ? Math.ceil(s.results.length / 3)
+        : 1;
+  return (
+    <section
+      className="gc-panel"
+      aria-label={
+        kind === "menu" ? "메뉴" : kind === "rules" ? "족보" : "직전 정산"
+      }
+    >
+      {kind === "menu" ? (
+        <>
+          <Action onClick={() => open("rules")}>족보</Action>
+          {s && <Action onClick={() => open("settlement")}>직전 정산</Action>}
+        </>
+      ) : kind === "rules" ? (
+        <>
+          <strong>족보 {page + 1}/3</strong>
+          <div>{rules[page]}</div>
+        </>
+      ) : (
+        s && (
+          <>
+            <strong>R{s.round} 정산</strong>
+            {s.results.slice(page * 3, page * 3 + 3).map((r) => (
+              <div key={r.seatId}>
+                {r.rank}위 {seatLabel(r.seatId)}{" "}
+                {r.chipChange > 0 ? "+" : r.chipChange < 0 ? "−" : ""}
+                {Math.abs(r.chipChange)}칩 → {view.slots[r.seatId]?.chips}칩{" "}
+                {view.slots[r.seatId]?.isOut
+                  ? view.phase === "GAME_OVER"
+                    ? "탈락"
+                    : "탈락 · 다음 판 관전"
+                  : ""}
+              </div>
+            ))}
+            {own?.round === s.round && (
+              <div>
+                남은 {own.remaining}장 × {2 ** own.twos}배(2가 {own.twos}장) ={" "}
+                {own.effective}
+              </div>
+            )}
+          </>
+        )
+      )}
+      <div className="gc-page-actions">
+        {pages > 1 && (
+          <>
+            <button
+              type="button"
+              disabled={page === 0}
+              onClick={() => setPage(page - 1)}
+            >
+              이전
+            </button>
+            <button
+              type="button"
+              disabled={page + 1 >= pages}
+              onClick={() => setPage(page + 1)}
+            >
+              다음
+            </button>
+          </>
+        )}
+        <Action onClick={close}>닫기</Action>
+      </div>
+    </section>
+  );
+}
+
+export function EndScreen({
+  view,
+  seatId,
+  reason,
+  createRoom,
+  openSettlement,
+}: {
+  view: PlayerView;
+  seatId: GameControlsProps["model"]["seatId"];
+  reason: string;
+  createRoom: () => void;
+  openSettlement: (button: HTMLButtonElement) => void;
+}) {
+  return (
+    <section className="gc-end">
+      <strong>{reason}</strong>
+      {view.ranking.map((r) => (
+        <div key={r.seatId}>
+          {r.rank}위 {seatLabel(r.seatId)} {view.slots[r.seatId]?.chips}칩{" "}
+          {view.slots[r.seatId]?.isOut ? "탈락" : ""}{" "}
+          {r.seatId === seatId ? "▶ 나" : ""}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={(e) => {
+          openSettlement(e.currentTarget);
+        }}
+      >
+        직전 정산
+      </button>
+      <Action onClick={createRoom}>새 방 만들기</Action>
+    </section>
+  );
+}

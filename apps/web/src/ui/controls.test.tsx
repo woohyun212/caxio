@@ -1,0 +1,751 @@
+import { expect, mock, spyOn, test } from "bun:test";
+import type { Preview, Tile } from "@caxio/shared/contracts/domain";
+import {
+  a4Settlement,
+  deadlines,
+  dealExamples,
+  epoch,
+  gameOverExamples,
+  lastPlaySequence,
+  previewExamples,
+  previewRejectionOrder,
+  representativeExamples,
+  roomCode,
+  roomCodeExamples,
+  seatReuse,
+  spectatorExamples,
+  tiedRankingExample,
+} from "@caxio/shared/contracts/fixtures";
+import {
+  ERROR_TEXT,
+  type PlayerView,
+  UNKNOWN_ERROR_TEXT,
+} from "@caxio/shared/contracts/wire";
+import { Children, isValidElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ClientModel, GameControlsProps } from "../contracts";
+import { atlases, fontFiles, tileRect } from "../visual/assets";
+import { handOrder, layout } from "../visual/layout";
+import { frame, palette } from "../visual/tokens";
+import { GameControls } from "./index";
+import { Action, EndScreen, Panel } from "./screens";
+import {
+  automaticSettlement,
+  clockText,
+  describe,
+  enterCode,
+  locks,
+  nextFocusSlot,
+  nextNotice,
+  passedSeats,
+  requestTurn,
+  seconds,
+  tileName,
+} from "./state";
+import { Tiles } from "./tiles";
+
+const pair = previewExamples[0];
+const lead = deadlines.before.view;
+if (lead.phase !== "TURN_ACTIVE") throw Error("expected turn fixture");
+const follow = {
+  ...lead,
+  tableHand: pair.tableHand,
+  lastPlay: { turnId: 1, seatId: 2, tiles: pair.tableHand },
+  ownHand: pair.selected,
+} as const;
+const noop = () => {};
+const pairPreview: Preview = (selected) =>
+  selected === pair.tableHand
+    ? { ok: true, kind: "PAIR", representative: { number: 4, suit: 3 } }
+    : pair.result;
+function props(
+  view: PlayerView | null = follow,
+  patch: Partial<ClientModel> = {},
+  k = 3,
+  preview: Preview = pairPreview,
+): GameControlsProps {
+  const model: ClientModel = {
+    view,
+    seatId: 0,
+    connection: "CONNECTED",
+    revision: 1,
+    credential: { roomCode, token: "test" },
+    pending: null,
+    errorCode: null,
+    muted: false,
+    selected: pair.selected,
+    timeAnchor: { serverNow: epoch, receivedAt: performance.now() },
+    ...patch,
+  };
+  return {
+    model,
+    k,
+    preview,
+    graphicsReady: true,
+    layout: layout(
+      view?.seatOrder ?? [],
+      model.seatId ?? 0,
+      view?.ownHand?.length ?? 0,
+      view?.tableHand?.length ?? 0,
+    ),
+    createRoom: noop,
+    joinRoom: noop,
+    resume: noop,
+    startGame: noop,
+    play: noop,
+    pass: noop,
+    toggleTile: noop,
+    setMuted: noop,
+  };
+}
+const render = (p: GameControlsProps) =>
+  renderToStaticMarkup(<GameControls {...p} />);
+const tags = (html: string, pattern: RegExp) =>
+  Array.from(html.matchAll(pattern), (m) => m[0]);
+function actionTag(html: string, kind: "submit" | "pass") {
+  const tag = html.match(
+    new RegExp(`<button[^>]*class="gc-${kind}"[^>]*>`),
+  )?.[0];
+  if (!tag) throw Error(kind);
+  return tag;
+}
+function expectLock(html: string, tag: string, reason: string) {
+  expect(tag).toContain('aria-disabled="true"');
+  expect(tag).not.toMatch(/ disabled(?:[ =>])|tabindex="-1"/i);
+  const id = tag.match(/aria-describedby="([^"]+)"/)?.[1];
+  expect(id).toBeDefined();
+  expect(html).toMatch(new RegExp(`id="${id}"[^>]*>${reason}<`));
+}
+// Inspect native click callbacks from the same hook-free button components used by the board.
+function click(node: ReactNode) {
+  if (!isValidElement<{ onClick: () => void }>(node))
+    throw Error("expected button");
+  node.props.onClick();
+}
+function handClick(p: GameControlsProps) {
+  const { model, preview } = p,
+    v = model.view;
+  if (!v?.maxNumber || !v.ownHand) throw Error("expected hand");
+  const hand = handOrder(v.ownHand, v.maxNumber);
+  const reason = locks(
+    model,
+    preview(model.selected, v.tableHand, v.maxNumber),
+    30,
+  ).hand;
+  const element = Tiles({
+    tiles: hand,
+    mode: p.k >= frame.wideMinScale ? "wide" : "compact",
+    slots: p.layout.hand,
+    hand: {
+      selected: model.selected,
+      reason,
+      describedBy: "test-reason",
+      toggle: p.toggleTile,
+    },
+  });
+  if (!isValidElement<{ children: ReactNode }>(element))
+    throw Error("expected row");
+  click(Children.toArray(element.props.children)[0]);
+}
+const css = await Bun.file(new URL("./controls.css", import.meta.url)).text();
+
+test("server rejection keeps the selected faces and the model error", () => {
+  const p = props(follow, { errorCode: "NOT_HIGHER" });
+  for (const html of [
+    render(p),
+    render({ ...p, model: { ...p.model, revision: 2 } }),
+  ]) {
+    expect(html).toContain(`id="gc-live-text">${ERROR_TEXT.NOT_HIGHER}</span>`);
+    expect(tags(html, /aria-pressed="true"/g)).toHaveLength(2);
+    expect(tags(html, /aria-live="polite"/g)).toHaveLength(1);
+  }
+});
+test("all wire errors and unknown codes use the entry and game message", () => {
+  expect(Object.keys(ERROR_TEXT)).toHaveLength(18);
+  for (const [errorCode, message] of [
+    ...Object.entries(ERROR_TEXT),
+    ["NEW_CODE", UNKNOWN_ERROR_TEXT],
+  ]) {
+    if (!errorCode || !message) throw Error("missing error");
+    const entry = render(
+      props(null, { errorCode, connection: "DISCONNECTED", credential: null }),
+    );
+    expect(entry).toContain(message);
+    expect(entry).toContain(">방 만들기<");
+    expect(render(props(follow, { errorCode }))).toContain(
+      `id="gc-live-text">${message}</span>`,
+    );
+  }
+});
+test("opponent turn previews selection and dispatches only tile toggles", () => {
+  const toggleTile = mock(noop),
+    p = { ...props({ ...follow, currentTurn: 1 }), toggleTile };
+  const html = render(p);
+  expect(html).toContain("페어 · 달 7");
+  expect(html).toContain("3번 · 페어 · 해 4");
+  for (const kind of ["submit", "pass"] as const)
+    expectLock(html, actionTag(html, kind), "내 차례를 기다려 주세요");
+  handClick(p);
+  expect(toggleTile).toHaveBeenCalledWith(pair.selected[0]);
+});
+test("follow permits pass, lead explains the lock, pass labels follow the active trick", () => {
+  expect(actionTag(render(props()), "pass")).not.toContain("aria-disabled");
+  const html = render(props(lead));
+  expectLock(html, actionTag(html, "pass"), "선은 패스할 수 없어요");
+  const [before, pass, clear, play] = lastPlaySequence.continuing;
+  for (const [snap, expected] of [
+    [before, []],
+    [pass, [1]],
+    [clear, []],
+    [play, []],
+  ] as const) {
+    expect([...passedSeats(snap.view)]).toEqual([...expected]);
+    expect(
+      tags(render(props(snap.view)), /class="gc-seat-state"[^>]*>패스</g),
+    ).toHaveLength(expected.length);
+  }
+});
+test("monotonic deadline, urgent clock and zero are independent of wall time", () => {
+  const anchor = { serverNow: epoch, receivedAt: 100 },
+    deadline = epoch + 6000;
+  for (const offset of [-30000, 30000]) {
+    const wall = spyOn(Date, "now").mockReturnValue(epoch + offset);
+    try {
+      for (const [elapsed, left, text] of [
+        [0, 6, "6초"],
+        [999, 6, "6초"],
+        [1000, 5, "마감 5초"],
+        [5500, 1, "마감 1초"],
+        [6000, 0, "0초 · 처리 중"],
+        [6050, 0, "0초 · 처리 중"],
+      ] as const) {
+        expect(seconds(deadline, anchor, anchor.receivedAt + elapsed)).toBe(
+          left,
+        );
+        expect(clockText(left)).toBe(text);
+      }
+    } finally {
+      wall.mockRestore();
+    }
+  }
+  for (const n of [4, 0]) {
+    const html = render(props({ ...follow, deadline: epoch + n * 1000 }));
+    expect(html).toContain("gc-status gc-urgent");
+    expect(html).toContain(clockText(n));
+    expect(html.match(/class="gc-message".*?<\/div>/)?.[0]).not.toContain(
+      clockText(n),
+    );
+  }
+});
+test("automatic PLAY and PASS announce once across presence and resume baselines", () => {
+  const initial = props(lead).model;
+  for (const type of ["PLAY", "PASS"] as const) {
+    const m = props({
+      ...follow,
+      currentTurn: 1,
+      turnId: 2,
+      lastAction: { type, turnId: 1, automatic: true, seatId: 0 },
+    }).model;
+    const text = nextNotice(initial, m, "");
+    expect(text).toBe(
+      type === "PLAY"
+        ? "시간 초과로 최저 싱글을 냈어요"
+        : "시간 초과로 패스했어요",
+    );
+    const presence = { ...m, revision: 3 };
+    expect(nextNotice(m, presence, text)).toBe(text);
+    expect(nextNotice(m, presence, "")).toBe("");
+    expect(nextNotice({ ...initial, connection: "RESTORING" }, m, text)).toBe(
+      "",
+    );
+    expect(nextNotice(null, m, "")).toBe("");
+  }
+});
+test("OUT snapshots render public seats and chips without private controls or settlement", () => {
+  for (const snap of [
+    spectatorExamples.transition,
+    spectatorExamples.following,
+    spectatorExamples.restored,
+    spectatorExamples.gameOver,
+  ]) {
+    const html = render(
+      props(snap.view, { seatId: spectatorExamples.recipient, selected: [] }),
+    );
+    expect(html).toContain("탈락 · 관전 중");
+    expect(html).toContain("1번");
+    expect(html).toContain("칩");
+    expect(html).toContain('class="gc-center"');
+    for (const token of [
+      "data-slot=",
+      'class="gc-submit"',
+      'class="gc-pass"',
+      "배(2가",
+    ])
+      expect(html).not.toContain(token);
+  }
+});
+test("shuffled hand and center bind sorted identities, hit boxes and atlas cells at every N", () => {
+  for (const maxNumber of [9, 13, 15] as const) {
+    const tiles: Tile[] = [
+      { number: 2, suit: 0 },
+      { number: maxNumber, suit: 3 },
+      { number: 1, suit: 1 },
+      { number: 3, suit: 3 },
+      { number: 3, suit: 0 },
+    ];
+    const v = {
+      ...follow,
+      ownHand: tiles,
+      tableHand: tiles.toReversed(),
+      lastPlay: { ...follow.lastPlay, tiles },
+    };
+    const p = props({ ...v, maxNumber }),
+      html = render(p),
+      sorted = handOrder(tiles, maxNumber);
+    for (const [pattern, slots] of [
+      [/<button[^>]+data-slot=[^>]+>/g, p.layout.hand],
+      [/<span class="gc-tile"[^>]*role="img"[^>]*>/g, p.layout.table],
+    ] as const) {
+      const nodes = tags(html, pattern);
+      expect(nodes).toHaveLength(sorted.length);
+      sorted.forEach((t, i) => {
+        const r = slots[i];
+        if (!r) throw Error("missing slot");
+        expect(nodes[i]).toContain(`aria-label="${tileName(t)}"`);
+        expect(nodes[i]).toContain(
+          `left:${r.x}px;top:${r.y}px;width:28px;height:40px`,
+        );
+        const cell = tileRect(t.number, t.suit, "wide");
+        expect(html).toContain(`background-position:${-cell.x}px ${-cell.y}px`);
+      });
+    }
+  }
+});
+test("locked native actions stay focusable, describe their reason and dispatch nothing", () => {
+  for (const [patch, reason, kinds] of [
+    [
+      { pending: { type: "PASS", turnId: 1 } },
+      "서버 응답 대기",
+      ["play", "pass"],
+    ],
+    [
+      {
+        timeAnchor: {
+          serverNow: follow.deadline,
+          receivedAt: performance.now(),
+        },
+      },
+      "시간이 지났어요",
+      ["play", "pass"],
+    ],
+    [{ timeAnchor: null }, "서버 응답 대기", ["play", "pass"]],
+    [{ seatId: 1 }, "내 차례를 기다려 주세요", ["play", "pass"]],
+    [{ connection: "DISCONNECTED" }, "연결이 끊겼어요", ["play", "pass"]],
+    [{ connection: "RESTORING" }, "자리 복구 중", ["play", "pass"]],
+    [{ selected: [] }, "패를 골라 주세요", ["play"]],
+  ] as const) {
+    const result =
+      "selected" in patch
+        ? ({ ok: false, reason: "EMPTY" } as const)
+        : pair.result;
+    const send = mock(noop),
+      p = { ...props(follow, patch, 3, () => result), toggleTile: send };
+    const html = render(p);
+    for (const kind of kinds) {
+      expectLock(
+        html,
+        actionTag(html, kind === "play" ? "submit" : "pass"),
+        reason,
+      );
+      click(Action({ children: kind, reason, onClick: send }));
+      requestTurn(p.model, result, kind, performance.now(), send);
+    }
+    if ("pending" in patch || "connection" in patch) {
+      for (const tag of tags(html, /<button[^>]*data-slot[^>]*>/g))
+        expectLock(html, tag, reason);
+      handClick(p);
+    }
+    expect(send).toHaveBeenCalledTimes(0);
+  }
+  const p = props(follow, {
+    pending: { type: "PASS", turnId: 1 },
+    errorCode: "INVALID_MESSAGE",
+    connection: "DISCONNECTED",
+  });
+  expect(render(p)).toContain('id="gc-live-text">연결이 끊겼어요</span>');
+});
+test("settlement opens through the next deal and first lead remains playable", () => {
+  const [, , , paid, next] = lastPlaySequence.continuing;
+  const html = render(props(paid.view));
+  expect(html).toContain('aria-label="직전 정산"');
+  for (const text of [
+    "1위 1번 +3칩 → 67칩",
+    "2위 2번 0칩 → 64칩",
+    "3위 3번 −3칩 → 61칩",
+  ])
+    expect(html).toContain(text);
+  const detail = a4Settlement.details[0];
+  expect(html).toContain(
+    `남은 ${detail.remaining}장 × 1배(2가 0장) = ${detail.effective}`,
+  );
+  const nextTurn = {
+    ...next.view,
+    phase: "TURN_ACTIVE",
+    turnId: 64,
+    deadline: epoch + 30000,
+    currentTurn: 0,
+    maxNumber: 9,
+    ranking: [],
+  } as const;
+  const representative = nextTurn.ownHand?.find(
+    (t) => t.number === 3 && t.suit === 0,
+  );
+  if (!representative) throw Error("expected starting tile");
+  const selected = [representative],
+    single = { ok: true, kind: "SINGLE", representative } as const;
+  const p = props(nextTurn, { selected }, 3, () => single),
+    first = render(p);
+  expect(first).toContain('class="gc-panel"');
+  expect(tags(first, /<button[^>]*data-slot[^>]*>/g)).toHaveLength(12);
+  expect(actionTag(first, "submit")).not.toContain("aria-disabled");
+  expectLock(first, actionTag(first, "pass"), "선은 패스할 수 없어요");
+  const send = mock(noop);
+  requestTurn(p.model, single, "play", performance.now(), send);
+  expect(send).toHaveBeenCalledTimes(1);
+  const after = {
+    ...nextTurn,
+    tableHand: selected,
+    lastPlay: { turnId: 64, seatId: 0, tiles: selected },
+  } as const;
+  expect(automaticSettlement(after)).toBe(false);
+  expect(render(props(after))).not.toContain('class="gc-panel"');
+});
+test("injected preview specimens and all rejection reasons are displayed verbatim", () => {
+  const expected = [
+    "페어 · 달 7",
+    "1·2·3·5장만 낼 수 있어요",
+    "바닥보다 높은 조합이 필요해요",
+    "트리플 · 3",
+    "스트레이트 · 별 2",
+  ];
+  for (const [i, example] of [
+    ...previewExamples,
+    ...representativeExamples,
+  ].entries()) {
+    const { selected, tableHand, result, maxNumber } = example;
+    const preview = mock<Preview>((tiles) =>
+      tiles === selected ? result : pair.result,
+    );
+    const html = render(
+      props(
+        { ...follow, tableHand, ownHand: selected, maxNumber },
+        { selected },
+        3,
+        preview,
+      ),
+    );
+    expect(preview).toHaveBeenCalledWith(selected, tableHand, maxNumber);
+    expect(preview).toHaveBeenCalledWith(
+      follow.lastPlay.tiles,
+      null,
+      maxNumber,
+    );
+    expect(html).toContain(expected[i] ?? "absent");
+    expect(actionTag(html, "submit").includes("aria-disabled")).toBe(
+      !result.ok,
+    );
+    if (i === 0) expect(html).toContain(">제출 2장<");
+  }
+  expect(
+    previewRejectionOrder.map((reason) => describe({ ok: false, reason })),
+  ).toEqual([
+    "패를 골라 주세요",
+    "1·2·3·5장만 낼 수 있어요",
+    "조합이 아니에요",
+    "같은 장수로 내세요",
+    "바닥보다 높은 조합이 필요해요",
+  ]);
+});
+test("compact, wide canvas and wide fallback share selection, play and pass", () => {
+  for (const [k, graphicsReady, mode] of [
+    [0, false, "compact"],
+    [1, true, "compact"],
+    [3, false, "wide"],
+    [3, true, "wide"],
+  ] as const) {
+    const send = mock(noop),
+      p = { ...props(follow, {}, k), graphicsReady, toggleTile: send };
+    const html = render(p);
+    expect(html).toContain(`class="gc gc-${mode}"`);
+    expect(html).toContain(atlases[mode].url);
+    expect(html.includes("gc-board gc-opaque")).toBe(
+      mode === "compact" || !graphicsReady,
+    );
+    expect(
+      html.includes("그래픽을 사용할 수 없어 기본 화면으로 진행해요"),
+    ).toBe(k === 3 && !graphicsReady);
+    handClick(p);
+    for (const kind of ["play", "pass"] as const) {
+      expect(
+        actionTag(html, kind === "play" ? "submit" : "pass"),
+      ).not.toContain("aria-disabled");
+      requestTurn(p.model, pair.result, kind, performance.now(), send);
+    }
+    expect(send).toHaveBeenCalledTimes(3);
+  }
+});
+test("entry normalizes codes and lobby follows host transfer and start permission", () => {
+  for (const input of [
+    ...roomCodeExamples.valid,
+    ...roomCodeExamples.normalize,
+  ]) {
+    const join = mock(noop);
+    expect(enterCode(input, join)).toBe(true);
+    expect(join).toHaveBeenCalledWith(input.trim().toUpperCase());
+  }
+  for (const input of roomCodeExamples.invalid) {
+    if (typeof input === "string") {
+      const join = mock(noop);
+      expect(enterCode(input, join)).toBe(false);
+      expect(join).not.toHaveBeenCalled();
+    }
+  }
+  for (const [v, reason] of [
+    [seatReuse.joins[0].view, "한 명 더 필요"],
+    [seatReuse.bDisconnected.view, "2번 복귀 대기"],
+  ] as const) {
+    const html = render(props(v));
+    expect(html).toContain(`id="gc-start-reason">${reason}`);
+    expect(html).toContain('aria-describedby="gc-start-reason">시작');
+    expect(html).toContain(roomCode);
+  }
+  expect(render(props(seatReuse.aReturned.view, { seatId: 2 }))).toContain(
+    'type="button">시작',
+  );
+  const guest = render(props(seatReuse.aReturned.view, { seatId: 1 }));
+  expect(guest).toContain("3번이 방장이에요");
+  expect(guest).toContain("방장의 시작을 기다려 주세요");
+  expect(guest).not.toContain(">시작<");
+});
+test("end reason prioritizes the last round, preserves tied ranks and creates a new room", () => {
+  for (const { snapshot, reason } of gameOverExamples)
+    expect(render(props(snapshot.view))).toContain(
+      reason === "LAST_ROUND" ? "마지막 라운드 종료" : "생존자 3명 미만",
+    );
+  const v = tiedRankingExample.view,
+    html = render(props(v));
+  expect(html).toMatch(/1위 1번 65칩.*1위 2번 65칩.*3위 3번 62칩/);
+  expect(html).toContain(">새 방 만들기<");
+  const createRoom = mock(noop),
+    end = EndScreen({
+      view: v,
+      seatId: 0,
+      createRoom,
+      reason: "마지막 라운드 종료",
+      openSettlement: noop,
+    });
+  if (!isValidElement<{ children: ReactNode }>(end))
+    throw Error("missing ranking");
+  const newRoom = Children.toArray(end.props.children).find(
+    (el) => isValidElement(el) && el.type === Action,
+  );
+  if (!isValidElement<Parameters<typeof Action>[0]>(newRoom))
+    throw Error("missing action");
+  click(Action(newRoom.props));
+  expect(createRoom).toHaveBeenCalledTimes(1);
+});
+test("trick clear keeps a sorted text record and the next round retains settlement in the menu", () => {
+  const clear = lastPlaySequence.continuing[2].view;
+  const html = render(
+    props(clear, {}, 3, () => ({
+      ok: true,
+      kind: "SINGLE",
+      representative: { number: 9, suit: 0 },
+    })),
+  );
+  expect(html).toContain("직전 제출 · 1번 · 싱글 · 구름 9");
+  expect(html).toContain("새 선 · 1번");
+  expect(html).not.toContain('role="img"');
+  const next = lastPlaySequence.continuing[4].view;
+  expect(render(props(next))).not.toContain("직전 제출 ·");
+  const menu = renderToStaticMarkup(
+    <Panel
+      view={next}
+      kind="menu"
+      page={0}
+      open={noop}
+      close={noop}
+      setPage={noop}
+    />,
+  );
+  expect(menu).toContain(">직전 정산<");
+  expect(menu).toContain(">족보<");
+});
+test("wide frame and compact wrapping consume the specified slot and control dimensions", () => {
+  for (const { view } of dealExamples) {
+    const v = { ...view, tableHand: representativeExamples[1].selected },
+      p = props(v);
+    const html = render(p),
+      first = p.layout.hand.at(0),
+      last = p.layout.hand.at(-1),
+      firstTable = p.layout.table.at(0),
+      lastTable = p.layout.table.at(-1);
+    if (!first || !last || !firstTable || !lastTable)
+      throw Error("missing geometry");
+    expect(last.x + last.w - first.x).toBe(
+      p.layout.hand.length === 13 ? 388 : 358,
+    );
+    expect(lastTable.x + lastTable.w - firstTable.x).toBe(148);
+    expect(html).toContain("zoom:3;width:416px;height:250px");
+    expect(html).toContain(
+      `left:${first.x}px;top:151px;width:28px;height:40px`,
+    );
+    expect(html).toContain(`left:${last.x}px;top:151px;width:28px;height:40px`);
+    if (view.seatOrder.length === 5) {
+      expect(html).toContain("width:96px;height:16px");
+      expect(html).toContain("2번 12장 64칩");
+    }
+    const compact = render(props(v, {}, 0));
+    expect(compact).toContain("width:48px;height:80px");
+    expect(compact).toContain("--gc-hit:44px");
+  }
+  // These flex constraints implement floor((W+2)/50); centered lines shrink to the available width.
+  expect(css).toMatch(
+    /\.gc-compact \.gc-hand\s*\{[^}]*flex-wrap: wrap;[^}]*gap: 2px;[^}]*max-width: 348px;/,
+  );
+  expect(css).toMatch(
+    /@media \(min-width: 648px\)[\s\S]*?\.gc-compact \.gc-hand\s*\{\s*max-width: 648px/,
+  );
+  expect(css).toMatch(/\.gc-compact \.gc-time\s*\{[^}]*min-height: 24px/);
+  expect(css).toContain("min-height: var(--gc-hit)");
+  expect(css).toContain("row-gap: 10px");
+  const narrow = Number(css.match(/max-width: (348)px/)?.[1]),
+    wide = Number(css.match(/max-width: (648)px/)?.[1]);
+  const gap = Number(
+    css.match(/flex-wrap: wrap;\s*gap: (2)px;\s*max-width: 348px/)?.[1],
+  );
+  const cell = Number(
+    render(props(dealExamples[1].view, {}, 0)).match(
+      /data-slot="0" style="width:(\d+)px/,
+    )?.[1],
+  );
+  for (const [w, expected] of [
+    [180, 3],
+    [297, 5],
+    [298, 6],
+    [348, 7],
+    [360, 7],
+    [647, 7],
+    [648, 13],
+    [844, 13],
+  ] as const) {
+    const columns = Math.max(
+      1,
+      Math.floor((Math.min(w, w >= 648 ? wide : narrow) + gap) / (cell + gap)),
+    );
+    expect(columns).toBe(expected);
+    if (w === 360) expect([columns, 13 - columns]).toEqual([7, 6]);
+  }
+});
+test("text uses the three contrast pairs and the frozen Galmuri font", () => {
+  const html = render(props());
+  for (const name of ["ink", "paper", "sage", "pine"] as const)
+    expect(html).toContain(`--gc-${name}:rgb(${palette[name].join(",")})`);
+  expect(css).toContain(`url("${fontFiles[0].url}")`);
+  expect(css).toContain("font-display: swap;");
+  expect(css).toContain("font-weight: 400;");
+  expect(css).toContain("font-style: normal;");
+  expect(css).toMatch(/Galmuri11,\s*sans-serif/);
+  for (const [, color] of css.matchAll(/(?:^|\n)\s*color:\s*([^;]+);/g))
+    expect(["var(--gc-ink)", "var(--gc-paper)"]).toContain(color ?? "");
+  const pairs = new Set<string>();
+  for (const [, rule] of css.matchAll(/\{([^{}]+)\}/g)) {
+    const fg = rule?.match(/(?:^|;)\s*color: var\(--gc-(\w+)\)/)?.[1];
+    const bg = rule?.match(/(?:^|;)\s*background: var\(--gc-(\w+)\)/)?.[1];
+    if (fg && bg) pairs.add([fg, bg].sort().join("/"));
+  }
+  expect([...pairs].sort()).toEqual(["ink/paper", "ink/sage", "paper/pine"]);
+});
+test("deal, mute state, three rule pages and keyboard focus fallback are available", () => {
+  for (const { view } of dealExamples) {
+    const html = render(props(view, { muted: true }));
+    expect(html).toContain(
+      `R1 · 숫자 1~${view.maxNumber} · ${view.ownHand?.length}장씩 · 선 1번(구름 3)`,
+    );
+    expect(html).toContain('aria-pressed="true">무음');
+  }
+  for (const [page, phrase] of [
+    "1·2·3·5장",
+    "플러시는 숫자 먼저",
+    "남은 장수",
+  ].entries()) {
+    const html = renderToStaticMarkup(
+      <Panel
+        view={lead}
+        kind="rules"
+        page={page}
+        open={noop}
+        setPage={noop}
+        close={noop}
+      />,
+    );
+    expect(html).toContain(phrase);
+    expect(html).toContain(`족보 ${page + 1}/3`);
+    expect(html).toMatch(/이전.*다음.*닫기/);
+  }
+  expect(nextFocusSlot(["a", "b", "c", "d", "e"], 2, ["b", "d", "e"])).toBe(1);
+  expect(nextFocusSlot(["a", "b", "c"], 2, ["a", "b"])).toBe(1);
+  expect(nextFocusSlot(["a"], 0, [])).toBeNull();
+});
+
+test("private settlement arithmetic and paged public OUT rows stay separate", () => {
+  const survivor = spectatorExamples.survivor.frame.view;
+  if (!survivor.ownHand) throw Error("missing private hand");
+  const html = render(
+    props(
+      {
+        ...survivor,
+        ownSettlement: { round: 1, remaining: 3, twos: 2, effective: 12 },
+      },
+      { seatId: 1 },
+    ),
+  );
+  expect(html).toContain("남은 3장 × 4배(2가 2장) = 12");
+  const pages = [0, 1].map((page) =>
+    renderToStaticMarkup(
+      <Panel
+        view={spectatorExamples.transition.view}
+        kind="settlement"
+        page={page}
+        open={noop}
+        close={noop}
+        setPage={noop}
+      />,
+    ),
+  );
+  expect(pages[0]).toContain("1위");
+  expect(pages[0]).not.toContain("4위");
+  expect(pages[1]).toContain("4위");
+  expect(pages[1]).toContain("탈락 · 다음 판 관전");
+  for (const page of pages) expect(page).not.toContain("배(2가");
+});
+test("a click at the deadline cannot send an action rendered enabled earlier", () => {
+  const p = props(follow, {
+      timeAnchor: {
+        serverNow: epoch,
+        receivedAt: Math.floor(performance.now()),
+      },
+    }),
+    anchor = p.model.timeAnchor;
+  if (!anchor) throw Error("missing clock");
+  const send = mock(noop);
+  expect(actionTag(render(p), "submit")).not.toContain("aria-disabled");
+  requestTurn(
+    p.model,
+    pair.result,
+    "play",
+    anchor.receivedAt + (follow.deadline - anchor.serverNow),
+    send,
+  );
+  expect(send).not.toHaveBeenCalled();
+});
