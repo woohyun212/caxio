@@ -4,10 +4,6 @@
   font-weight: 400;
   font-style: normal;
   font-display: swap;
-  /* Center the 11-unit ink of the 12-unit face within each fixed line. */
-  ascent-override: 100%;
-  descent-override: 8.3333%;
-  line-gap-override: 0%;
 }
 .gc {
   position: relative;
@@ -411,6 +407,8 @@
   grid-column: 1;
 }
 .gc-wide .gc-self:only-child {
+  align-self: stretch;
+  align-content: center;
   grid-column: 1 / -1;
   text-align: start;
   padding-inline: 1px;
@@ -685,4 +683,34 @@
   margin: 0;
   padding: 0;
   min-width: 0;
+}
+
+/* Galmuri's ink starts half a logical pixel above a tight line. Shift the
+   text down, then reclaim that space below the last line to keep the row size. */
+.gc-compact
+  :is(
+    .gc-brand,
+    .gc-time,
+    .gc-turn,
+    .gc-round,
+    .gc-caption,
+    .gc-message,
+    .gc-self,
+    .gc-selected,
+    .gc-end > strong,
+    .gc-end > div:not(.gc-actions),
+    .gc-entry > [aria-live],
+    #gc-entry-status,
+    .gc-lobby > div:not(.gc-lobby-seats),
+    .gc-lobby-seats > div
+  ),
+.gc .gc-panel > :is(strong, div:not(.gc-actions)) {
+  display: flow-root;
+  padding-block-start: calc(var(--gc-unit) / 2);
+
+  &::after {
+    content: "";
+    display: block;
+    margin-block-start: calc(var(--gc-unit) / -2);
+  }
 }

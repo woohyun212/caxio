@@ -1337,11 +1337,11 @@ test("compact settlement pages fill the natural center and visit every public ro
   );
 });
 
-test("Galmuri11 positions its ink within the fixed lines and covered captions give way to the panel", () => {
-  const font = styleRule("@font-face");
-  expect(font).toContain("ascent-override: 100%");
-  expect(font).toContain("descent-override: 8.3333%");
-  expect(font).toContain("line-gap-override: 0%");
+test("tight text rows offset native Galmuri ink without adding to their line height", () => {
+  const rows = styleRule(".gc .gc-panel > :is(strong, div:not(.gc-actions))");
+  expect(rows).toContain("display: flow-root;");
+  expect(rows).toContain("padding-block-start: calc(var(--gc-unit) / 2)");
+  expect(rows).toContain("margin-block-start: calc(var(--gc-unit) / -2)");
   expect(css).toMatch(
     /\.gc-center\[data-covered="true"\],\s*\.gc-end:has\(~ \.gc-panel-slot\)\s*\{\s*visibility: hidden/,
   );
