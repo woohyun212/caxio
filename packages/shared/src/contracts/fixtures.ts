@@ -9,6 +9,7 @@ import type {
 import type {
   Command,
   ErrorCode,
+  LastGameResult,
   PlayerView,
   PublicSeat,
   Seated,
@@ -115,7 +116,7 @@ function lobby(
   seatOrder: readonly SeatId[],
   own: SeatId,
   offline: readonly SeatId[] = [],
-): PlayerView {
+): Extract<PlayerView, { phase: "LOBBY" }> {
   const at = (id: SeatId) =>
     seatOrder.includes(id) ? slot(0, 64, !offline.includes(id)) : null;
   return {
@@ -823,3 +824,513 @@ export const phaseAndResumeErrors = [
     reply: error("ROOM_NOT_FOUND"),
   },
 ] as const;
+
+// These orders belong to the completed games, independent of the lobby receiving the result.
+function resultRow(seatId: SeatId, rank: number, chips: number) {
+  return { seatId, rank, chips };
+}
+const fourSeats = outOrder;
+export const abandonmentResults = {
+  threeTied: {
+    seatOrder: order,
+    result: {
+      reason: "ABANDONMENT",
+      leaverSeatId: 0,
+      ranking: [resultRow(1, 1, 64), resultRow(2, 1, 64), resultRow(0, 3, 64)],
+    },
+  },
+  previouslyOut: {
+    outSeatId: 1,
+    seatOrder: [2, 0, 1, 3],
+    result: {
+      reason: "ABANDONMENT",
+      leaverSeatId: 3,
+      ranking: [
+        resultRow(2, 1, 60),
+        resultRow(0, 1, 60),
+        resultRow(1, 3, 0),
+        resultRow(3, 4, 136),
+      ],
+    },
+  },
+  fourTied: {
+    seatOrder: fourSeats,
+    result: {
+      reason: "ABANDONMENT",
+      leaverSeatId: 0,
+      ranking: [
+        resultRow(1, 1, 64),
+        resultRow(2, 1, 64),
+        resultRow(3, 1, 64),
+        resultRow(0, 4, 64),
+      ],
+    },
+  },
+  afterRoundOne: {
+    seatOrder: fourSeats,
+    result: {
+      reason: "ABANDONMENT",
+      leaverSeatId: 0,
+      ranking: [
+        resultRow(1, 1, 103),
+        resultRow(2, 2, 51),
+        resultRow(3, 2, 51),
+        resultRow(0, 4, 51),
+      ],
+    },
+  },
+} as const satisfies Record<
+  string,
+  { seatOrder: readonly SeatId[]; outSeatId?: SeatId; result: LastGameResult }
+>;
+
+const finishedResult = abandonmentResults.afterRoundOne.result;
+const survivors = [1, 2, 3] as const;
+const replacementOrder = [1, 2, 3, 0] as const;
+function resultLobby(
+  seatOrder: readonly SeatId[],
+  recipient: SeatId,
+  offline: readonly SeatId[] = [],
+) {
+  return {
+    ...lobby(seatOrder, recipient, offline),
+    lastGameResult: finishedResult,
+  };
+}
+export const abandonmentLobbyExamples = [
+  { recipient: 1, frame: snap(resultLobby(survivors, 1), 21) },
+  { recipient: 1, frame: snap(resultLobby(survivors, 1, [2]), 22) },
+  { recipient: 1, frame: snap(resultLobby([1, 3], 1), 23) },
+  { recipient: 0, frame: snap(resultLobby(replacementOrder, 0), 24) },
+  { recipient: 4, frame: snap(resultLobby([...replacementOrder, 4], 4), 25) },
+] as const;
+
+// Independent reconnect after the offline presence example; SEATED restores the same credential.
+export const abandonmentLobbyResume = {
+  recipient: 2,
+  before: abandonmentLobbyExamples[1],
+  command: { type: "RESUME", roomCode, token: occupants.C.token },
+  replies: [occupants.C, snap(resultLobby(survivors, 2), 23)],
+} as const;
+
+const invalidLobby = snap(resultLobby(survivors, 1), 21);
+function invalidResult(violation: string, lastGameResult: unknown) {
+  return {
+    violation,
+    recipient: 1 as const,
+    frame: {
+      ...invalidLobby,
+      view: { ...invalidLobby.view, lastGameResult },
+    },
+  };
+}
+const badRanking = (violation: string, ranking: readonly unknown[]) =>
+  invalidResult(violation, { ...finishedResult, ranking });
+const [winner, tiedA, tiedB, leaver] = finishedResult.ranking;
+export const invalidAbandonmentExamples = [
+  ...phaseExamples.slice(1).map((frame) => ({
+    violation: `result in ${frame.view.phase}`,
+    recipient: 0 as const,
+    frame: {
+      ...frame,
+      view: { ...frame.view, lastGameResult: finishedResult },
+    },
+  })),
+  invalidResult("null result", null),
+  badRanking("two rows", [winner, { ...leaver, rank: 2 }]),
+  badRanking("six rows", [
+    winner,
+    tiedA,
+    tiedB,
+    resultRow(4, 2, 51),
+    resultRow(1, 2, 51),
+    { ...leaver, rank: 6 },
+  ]),
+  badRanking("duplicate seat", [
+    winner,
+    tiedA,
+    { ...tiedB, seatId: 2 },
+    leaver,
+  ]),
+  badRanking("seat outside 0–4", [
+    { ...winner, seatId: 5 },
+    tiedA,
+    tiedB,
+    leaver,
+  ]),
+  invalidResult("leaver absent", { ...finishedResult, leaverSeatId: 4 }),
+  invalidResult("leaver precedes last row", {
+    ...finishedResult,
+    leaverSeatId: 1,
+  }),
+  badRanking("leaver shares rank", [
+    winner,
+    tiedA,
+    tiedB,
+    { ...leaver, rank: 2 },
+  ]),
+  badRanking("equal chips split", [
+    winner,
+    tiedA,
+    { ...tiedB, rank: 3 },
+    leaver,
+  ]),
+  badRanking("different chips share rank", [
+    winner,
+    { ...tiedA, rank: 1 },
+    { ...tiedB, rank: 1 },
+    leaver,
+  ]),
+  badRanking("dense ranks 1,1,2", [
+    winner,
+    { ...tiedA, rank: 1, chips: winner.chips },
+    tiedB,
+    leaver,
+  ]),
+  badRanking("ascending remaining chips", [
+    winner,
+    { ...tiedA, chips: 104 },
+    { ...tiedB, rank: 3 },
+    leaver,
+  ]),
+  ...[-1, 0.5, Number.MAX_SAFE_INTEGER + 1].map((chips) =>
+    badRanking(`invalid chips ${chips}`, [
+      winner,
+      tiedA,
+      tiedB,
+      { ...leaver, chips },
+    ]),
+  ),
+  ...["LAST_ROUND", "FEWER_THAN_THREE", "OTHER"].map((reason) =>
+    invalidResult(`reason ${reason}`, { ...finishedResult, reason }),
+  ),
+  ...[
+    "hand",
+    "token",
+    "isOut",
+    "chipChange",
+    "effective",
+    "disconnectCount",
+  ].flatMap((key) => [
+    invalidResult(`extra result key ${key}`, { ...finishedResult, [key]: 1 }),
+    badRanking(`extra row key ${key}`, [
+      { ...winner, [key]: 1 },
+      tiedA,
+      tiedB,
+      leaver,
+    ]),
+  ]),
+];
+
+// Seat 1 sheds 5 + 5 + 3 in three leads. Keeping all four twos in its hand
+// leaves E = 13 for each passer, so the first settlement has no OUT seats.
+const firstFive = [...suits.map((s) => tile(2, s)), tile(3, 0)];
+const secondFive = [4, 5, 6, 7, 8].map((n) => tile(n, 1));
+const finalThree = [tile(9, 0), tile(9, 1), tile(9, 2)];
+const winningHand = [...firstFive, ...secondFive, ...finalThree];
+const rest = suits
+  .flatMap((s) => Array.from({ length: 13 }, (_, i) => tile(i + 1, s)))
+  .filter(
+    (t) => !winningHand.some((w) => w.suit === t.suit && w.number === t.number),
+  );
+const fourHands = [
+  rest.slice(0, 13),
+  winningHand,
+  rest.slice(13, 26),
+  rest.slice(26),
+] as const;
+function fourStart(seatOrder: readonly SeatId[], recipient: 0 | 1 | 2 | 3) {
+  return {
+    ...start,
+    maxNumber: 13,
+    seatOrder,
+    activePlayers: seatOrder,
+    currentTurn: 1,
+    slots: [slot(13), slot(13), slot(13), slot(13), null],
+    ownHand: fourHands[recipient],
+  } as const;
+}
+const opening = {
+  ...fourStart(fourSeats, 1),
+  phase: "TURN_ACTIVE",
+  turnId: 1,
+  deadline: epoch + 30000,
+} as const;
+const disconnected = {
+  ...opening,
+  slots: [slot(13, 64, false), slot(13), slot(13), slot(13), null],
+} as const;
+
+// Each opening play is followed by passes from seats 2, 3 and 0. Only the disconnected host waits for expiry.
+function trick(
+  tiles: readonly Tile[],
+  ownHand: readonly Tile[],
+  playId: number,
+  playRevision: number,
+  now: number,
+  restarted = false,
+) {
+  const lastPlay = { turnId: playId, seatId: 1, tiles } as const;
+  const view = {
+    ...fourStart(restarted ? replacementOrder : fourSeats, 1),
+    phase: "TURN_ACTIVE",
+    ownHand,
+    slots: [
+      slot(13, 64, restarted),
+      slot(ownHand.length),
+      slot(13),
+      slot(13),
+      null,
+    ],
+    lastPlay,
+    tableHand: tiles,
+  } as const;
+  const hostDeadline = now + 2 + 30000;
+  return [
+    snap(
+      {
+        ...view,
+        turnId: playId + 1,
+        currentTurn: 2,
+        deadline: now + 30000,
+        lastAction: {
+          type: "PLAY",
+          seatId: 1,
+          turnId: playId,
+          automatic: false,
+        },
+      },
+      playRevision,
+      now,
+    ),
+    ...(
+      [
+        [2, 3],
+        [3, 0],
+        [0, 1],
+      ] as const
+    ).map(([seatId, currentTurn], i) => {
+      const automatic = seatId === 0 && !restarted;
+      const clear = seatId === 0;
+      const at = automatic ? hostDeadline : now + i + 1;
+      return snap(
+        {
+          ...view,
+          currentTurn,
+          tableHand: clear ? null : tiles,
+          consecutivePasses: clear ? 0 : i + 1,
+          turnId: playId + i + 2,
+          deadline: at + 30000,
+          lastAction: {
+            type: "PASS",
+            seatId,
+            turnId: playId + i + 1,
+            automatic,
+          },
+        },
+        playRevision + i + 1,
+        at,
+      );
+    }),
+  ];
+}
+const roundOneSummary = {
+  round: 1,
+  results: [
+    { seatId: 1, rank: 1, chipChange: 39 },
+    { seatId: 2, rank: 2, chipChange: -13 },
+    { seatId: 3, rank: 3, chipChange: -13 },
+    { seatId: 0, rank: 4, chipChange: -13 },
+  ],
+} as const;
+function paidFour(
+  seatOrder: readonly SeatId[],
+  playId: number,
+  hostConnected: boolean,
+) {
+  const lastPlay = { turnId: playId, seatId: 1, tiles: finalThree } as const;
+  return {
+    ...fourStart(seatOrder, 1),
+    phase: "ROUND_SETTLEMENT",
+    currentTurn: null,
+    tableHand: finalThree,
+    lastPlay,
+    lastAction: { turnId: playId, seatId: 1, type: "PLAY", automatic: false },
+    slots: [
+      slot(13, 51, hostConnected),
+      slot(0, 103),
+      slot(13, 51),
+      slot(13, 51),
+      null,
+    ],
+    ownHand: [],
+    ownSettlement: a4Settlement.details[0],
+    lastSettlement: roundOneSummary,
+  } as const;
+}
+const secondRound = {
+  ...fourStart(fourSeats, 1),
+  round: 2,
+  currentTurn: 0,
+  ownHand: fourHands[0],
+  slots: [slot(13, 51, false), slot(13, 103), slot(13, 51), slot(13, 51), null],
+  ownSettlement: a4Settlement.details[0],
+  lastSettlement: roundOneSummary,
+} as const;
+const thirdTurn = snap(
+  { ...secondRound, phase: "TURN_ACTIVE", turnId: 10, deadline: epoch + 90008 },
+  18,
+  epoch + 60008,
+);
+const abandonedAt = epoch + 90008;
+const abandonedLobby = snap(resultLobby(survivors, 1), 19, abandonedAt);
+const joinedLobby = snap(resultLobby(replacementOrder, 1), 20, abandonedAt + 1);
+const replacement = seated(0, "replacement");
+const restartDeal = fourSeats.map((recipient) => ({
+  recipient,
+  frame: snap(fourStart(replacementOrder, recipient), 21, abandonedAt + 2),
+}));
+const restartActive = snap(
+  {
+    ...fourStart(replacementOrder, 1),
+    phase: "TURN_ACTIVE",
+    turnId: 11,
+    deadline: abandonedAt + 30002,
+  },
+  22,
+  abandonedAt + 2,
+);
+const restartPaid = snap(
+  paidFour(replacementOrder, 19, true),
+  31,
+  abandonedAt + 11,
+);
+
+// 'observed' is seat 1's receive stream. Other sockets' replies are in the exchanges,
+// positioned by the revision on which the command is sent.
+export const abandonmentRestart = {
+  recipient: 1,
+  observer: occupants.B,
+  oldHost: occupants.A,
+  firstActive: fourSeats.map((recipient) => ({
+    recipient,
+    frame: snap({ ...opening, ownHand: fourHands[recipient] }, 6, epoch),
+  })),
+  abandoned: survivors.map((recipient) => ({
+    recipient,
+    frame: snap(resultLobby(survivors, recipient), 19, abandonedAt),
+  })),
+  restartDeal,
+  exchanges: {
+    revoked: {
+      atRevision: 19,
+      recipient: null,
+      command: { type: "RESUME", roomCode, token: occupants.A.token },
+      replies: [error("RESUME_DENIED")],
+    },
+    joined: {
+      atRevision: 19,
+      recipient: 0,
+      command: { type: "JOIN_ROOM", roomCode },
+      replies: [
+        replacement,
+        snap(resultLobby(replacementOrder, 0), 20, abandonedAt + 1),
+      ],
+    },
+    rejectedStart: {
+      atRevision: 20,
+      recipient: 0,
+      command: { type: "START_GAME" },
+      replies: [error("NOT_HOST")],
+      after: snap(resultLobby(replacementOrder, 0), 20, abandonedAt + 1),
+    },
+    acceptedStart: {
+      atRevision: 20,
+      recipient: 1,
+      command: { type: "START_GAME" },
+      replies: [
+        snap(fourStart(replacementOrder, 1), 21, abandonedAt + 2),
+        restartActive,
+      ],
+    },
+    stale: [
+      {
+        atRevision: 22,
+        recipient: 1,
+        command: { type: "PLAY", turnId: 9, tiles: finalThree },
+        reply: error("STALE_TURN"),
+      },
+      {
+        atRevision: 22,
+        recipient: 1,
+        command: { type: "PASS", turnId: 10 },
+        reply: error("STALE_TURN"),
+      },
+    ],
+  },
+  observed: [
+    snap(opening, 6, epoch),
+    snap(disconnected, 7, epoch + 1),
+    ...trick(firstFive, [...secondFive, ...finalThree], 1, 8, epoch + 2),
+    ...trick(secondFive, finalThree, 5, 12, epoch + 30005),
+    snap(paidFour(fourSeats, 9, false), 16, epoch + 60008),
+    snap(secondRound, 17, epoch + 60008),
+    thirdTurn,
+    abandonedLobby,
+    abandonedLobby,
+    joinedLobby,
+    snap(fourStart(replacementOrder, 1), 21, abandonedAt + 2),
+    restartActive,
+    error("STALE_TURN"),
+    error("STALE_TURN"),
+    ...trick(
+      firstFive,
+      [...secondFive, ...finalThree],
+      11,
+      23,
+      abandonedAt + 3,
+      true,
+    ),
+    ...trick(secondFive, finalThree, 15, 27, abandonedAt + 7, true),
+    restartPaid,
+    restartPaid,
+  ],
+  effectBatches: [
+    [],
+    [],
+    [{ type: "PLAY", turnId: 1 }],
+    [],
+    [],
+    [],
+    [{ type: "PLAY", turnId: 5 }],
+    [],
+    [],
+    [],
+    [
+      { type: "PLAY", turnId: 9 },
+      { type: "SETTLEMENT", round: 1 },
+    ],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [],
+    [{ type: "PLAY", turnId: 11 }],
+    [],
+    [],
+    [],
+    [{ type: "PLAY", turnId: 15 }],
+    [],
+    [],
+    [],
+    [
+      { type: "PLAY", turnId: 19 },
+      { type: "SETTLEMENT", round: 1 },
+    ],
+    [],
+  ],
+} as const;
