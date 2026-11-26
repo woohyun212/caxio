@@ -1,6 +1,7 @@
 import { expect, mock, test } from "bun:test";
 import type { Tile } from "@caxio/shared/contracts/domain";
 import {
+  abandonmentRestart,
   effectBatches,
   lastPlaySequence,
   phaseExamples,
@@ -11,7 +12,9 @@ import {
   spectatorExamples,
 } from "@caxio/shared/contracts/fixtures";
 import {
+  ABANDONMENT_NOTICE,
   type Command,
+  type Credential,
   errorText,
   type Snapshot,
   WS_PATH,
@@ -81,7 +84,10 @@ class Socket extends EventTarget {
   }
 }
 
-function harness(origin = "https://game.test", restore = false) {
+function harness(
+  origin = "https://game.test",
+  restore: boolean | Credential = false,
+) {
   const connect = mock((_url: string) => new Socket());
   function socket(index = 0) {
     const opened = connect.mock.results[index];
@@ -100,14 +106,24 @@ function harness(origin = "https://game.test", restore = false) {
       },
     };
   };
+  const values = new Map<string, string>();
+  if (restore)
+    values.set(
+      "caxio.credential",
+      JSON.stringify(
+        restore === true ? { roomCode, token: "testing" } : restore,
+      ),
+    );
   const storage = {
     getItem(key: string) {
-      return restore && key === "caxio.credential"
-        ? JSON.stringify({ roomCode, token: "testing" })
-        : null;
+      return values.get(key) ?? null;
     },
-    setItem() {},
-    removeItem() {},
+    setItem(key: string, value: string) {
+      values.set(key, value);
+    },
+    removeItem(key: string) {
+      values.delete(key);
+    },
   };
   const session = startSession(
     browserSocket(origin, connect),
@@ -122,7 +138,7 @@ function harness(origin = "https://game.test", restore = false) {
     socket().receive(snapshot);
     expect(session.getState().view).toEqual(snapshot.view);
   }
-  return { session, socket, connect, audio, resume, seated };
+  return { session, socket, connect, audio, resume, seated, storage };
 }
 
 const wide = { width: 1281, height: 801 };
@@ -577,4 +593,50 @@ test("entry preloads the same-origin Galmuri11 font", async () => {
 test("entry declares an empty favicon", async () => {
   const html = await Bun.file(new URL("../index.html", import.meta.url)).text();
   expect(html).toContain('<link rel="icon" href="data:,">');
+});
+
+test("GameApp removes the loaded table on abandonment and plays the restarted game's first settlement", async () => {
+  const h = harness();
+  const { observed, recipient } = abandonmentRestart;
+  const scene = createScene(async () => ({ GameTable: canvas }));
+  h.seated(observed[0], recipient);
+  await scene.prepare("wide", h.session.getState().view);
+  expect(markup(h.session, scene)).toContain("<canvas");
+  for (const frame of observed.slice(1)) {
+    h.audio.play.mockClear();
+    h.socket().receive(frame);
+    if (frame.type !== "SNAPSHOT") continue;
+    if (frame.view.phase === "LOBBY") {
+      const html = markup(h.session, scene);
+      expect(html).toContain(ABANDONMENT_NOTICE);
+      expect(html).toContain("gc-lobby");
+      expect(html).not.toMatch(
+        /<canvas|gc-board|gc-end|data-panel="settlement"/,
+      );
+      expect(h.audio.play).not.toHaveBeenCalled();
+    }
+    if (frame.view.phase === "ROUND_SETTLEMENT") {
+      expect(h.audio.play).toHaveBeenCalledTimes(1);
+      expect(h.audio.play).toHaveBeenCalledWith([
+        { type: "PLAY", turnId: frame.view.lastPlay?.turnId },
+        { type: "SETTLEMENT", round: 1 },
+      ]);
+    }
+  }
+});
+
+test("startup sends one revoked resume and displays the denial at entry with cleared storage", () => {
+  const { command, replies } = abandonmentRestart.exchanges.revoked;
+  const h = harness(undefined, {
+    roomCode: command.roomCode,
+    token: command.token,
+  });
+  h.socket().dispatchEvent(new Event("open"));
+  expect(h.socket().commands).toEqual([command]);
+  h.socket().receive(replies[0]);
+  const html = markup(h.session);
+  expect(html).toContain("gc-entry");
+  expect(html).toContain(errorText(replies[0].code));
+  expect(h.storage.getItem("caxio.credential")).toBeNull();
+  expect(h.connect).toHaveBeenCalledTimes(1);
 });
