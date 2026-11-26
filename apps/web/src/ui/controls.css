@@ -290,6 +290,38 @@
 .gc-wide .gc-lobby {
   width: 412px;
 }
+.gc-wide .gc-room-code {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.gc-lobby-seats,
+.gc-last-result ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.gc-last-result {
+  word-break: keep-all;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--gc-ink);
+}
+.gc-last-result h2 {
+  margin: 0;
+  font: inherit;
+}
+.gc-wide .gc-lobby-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: 4px;
+}
+.gc-wide .gc-lobby-actions [aria-live] {
+  width: 100%;
+}
 .gc-wide .gc-lobby-seats {
   display: grid;
   grid-template-columns: repeat(5, 76px);
@@ -297,7 +329,7 @@
   word-break: keep-all;
   overflow-wrap: normal;
 }
-.gc-lobby-seats > div {
+.gc-lobby-seats > li {
   background: var(--gc-pine);
   color: var(--gc-paper);
   align-content: center;
@@ -461,7 +493,7 @@
   width: 100%;
   min-height: 44px;
 }
-.gc-compact .gc-lobby-seats > div {
+.gc-compact .gc-lobby-seats > li {
   min-height: 44px;
   margin: 2px;
 }
@@ -701,8 +733,10 @@
     .gc-end > div:not(.gc-actions),
     .gc-entry > [aria-live],
     #gc-entry-status,
-    .gc-lobby > div:not(.gc-lobby-seats),
-    .gc-lobby-seats > div
+    .gc-lobby-seats > li,
+    .gc-lobby-actions > div,
+    .gc-last-result > :is(div, h2),
+    .gc-last-result li
   ),
 .gc .gc-panel > :is(strong, div:not(.gc-actions)) {
   display: flow-root;
@@ -712,5 +746,27 @@
     content: "";
     display: block;
     margin-block-start: calc(var(--gc-unit) / -2);
+  }
+}
+
+@media (orientation: landscape) and (min-width: 660px) {
+  .gc-compact .gc-lobby:has(.gc-last-result) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: "code code" "seats result" "actions actions";
+    column-gap: 8px;
+    align-items: center;
+  }
+  .gc-compact .gc-room-code {
+    grid-area: code;
+  }
+  .gc-compact .gc-lobby-seats {
+    grid-area: seats;
+  }
+  .gc-compact .gc-last-result {
+    grid-area: result;
+  }
+  .gc-compact .gc-lobby-actions {
+    grid-area: actions;
   }
 }

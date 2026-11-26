@@ -193,6 +193,7 @@ export const createClientSession: CreateClientSession = (deps) => {
 
           const { view, revision, serverNow } = message;
           if (state.revision !== null && revision <= state.revision) return;
+          if (view.phase === "LOBBY") lastSettlementRound = 0;
           const events: ClientEffect[] = [];
           if (view.lastPlay && view.lastPlay.turnId > lastPlayId) {
             lastPlayId = view.lastPlay.turnId;

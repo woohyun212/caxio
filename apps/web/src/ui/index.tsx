@@ -13,6 +13,7 @@ import { handOrder, type Mode, seatLabel } from "../visual/layout";
 import { frame, palette, sceneZones, stage, tile } from "../visual/tokens";
 import { Action, EndScreen, Entry, Lobby, Panel } from "./screens";
 import {
+  abandonmentNotice,
   clockText,
   dealText,
   describe,
@@ -427,6 +428,12 @@ const colors = Object.fromEntries(
 export const GameControls: GameControlsComponent<ReactElement> = (props) => {
   const { view, errorCode } = props.model,
     wide = props.k >= frame.wideMinScale;
+  const [previous, setPrevious] = useState(props.model);
+  const [announcement, setAnnouncement] = useState("");
+  if (previous !== props.model) {
+    setPrevious(props.model);
+    setAnnouncement(abandonmentNotice(previous, props.model));
+  }
   // A cleared view unmounts the board; keep only the committed public action ID for this seat.
   const memory = useRef<{ token: string; turn: number | null } | null>(null);
   const token = props.model.credential?.token;
@@ -457,6 +464,9 @@ export const GameControls: GameControlsComponent<ReactElement> = (props) => {
     outage(props.model) || (errorCode !== null ? errorText(errorCode) : "");
   return (
     <div className={`gc gc-${wide ? "wide" : "compact"}`} style={style}>
+      <span className="gc-sr" role="status">
+        {announcement}
+      </span>
       {!view ? (
         <Entry {...props} message={message} />
       ) : view.phase === "LOBBY" ? (

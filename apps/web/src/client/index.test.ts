@@ -1,12 +1,18 @@
 import { expect, mock, setSystemTime, test } from "bun:test";
 import {
+  abandonmentLobbyExamples,
+  abandonmentLobbyResume,
+  abandonmentRestart,
+  abandonmentResults,
   deadlines,
   dealExamples,
   effectBatches,
   epoch,
+  invalidAbandonmentExamples,
   lastPlaySequence,
   lostResume,
   newRoomSequence,
+  nonHostAbandonmentLobby,
   phaseExamples,
   roomCode,
   seatReuse,
@@ -726,4 +732,207 @@ test("throwing subscribers and audio do not interrupt updates or replay effects"
   );
   expect(fail).toHaveBeenCalledTimes(1);
   expect(listener).toHaveBeenCalled();
+});
+
+test("first result snapshots include the completed game and malformed results preserve the accepted revision", () => {
+  for (const { frame, recipient } of [
+    ...abandonmentLobbyExamples,
+    nonHostAbandonmentLobby,
+  ]) {
+    const h = harness();
+    h.enter(frame, { ...abandonmentRestart.observer, seatId: recipient });
+    expect(h.session.getState().revision).toBe(frame.revision);
+    expect(h.effects).not.toHaveBeenCalled();
+  }
+  for (const { recipient, frame } of invalidAbandonmentExamples) {
+    const h = harness();
+    const s =
+      recipient === 0
+        ? h.enter(phaseExamples[0])
+        : h.enter(
+            abandonmentLobbyExamples[0].frame,
+            abandonmentRestart.observer,
+          );
+    const previous = h.session.getState();
+    s.frame(frame);
+    expect(h.session.getState().view).toBe(previous.view);
+    expect(h.session.getState().revision).toBe(previous.revision);
+    expect(h.session.getState().errorCode).toBe("INVALID_MESSAGE");
+  }
+});
+
+test("survivor resumes directly into a silent result lobby with the same credential", () => {
+  const { command, replies } = abandonmentLobbyResume;
+  const h = harness(stored(command));
+  h.session.resume();
+  const socket = h.latest();
+  socket.events.open();
+  expect(socket.sent).toEqual([command]);
+  for (const reply of replies) socket.frame(reply);
+  expect(h.session.getState()).toMatchObject({
+    view: replies[1].view,
+    connection: "CONNECTED",
+    credential: { token: command.token, roomCode },
+  });
+  expect(h.saved.getItem(key)).toBe(stored(command).getItem(key));
+  expect(h.effects).not.toHaveBeenCalled();
+});
+
+test("restart replay preserves every accepted frame and emits exactly the per-game effect batches", () => {
+  const { observer, observed, effectBatches, exchanges } = abandonmentRestart;
+  for (const muted of [false, true]) {
+    const h = harness();
+    h.session.setMuted(muted);
+    const socket = h.enter(observed[0], observer);
+    const listen = mock();
+    h.session.subscribe(listen);
+    let oldTurn = 0;
+    for (const [i, frame] of observed.entries()) {
+      const before = h.session.getState();
+      h.effects.mockClear();
+      if (frame.type === "ERROR") {
+        expect(before.revision).toBe(exchanges.stale[0].atRevision);
+        if (!before.selected.length)
+          h.session.toggleTile(required(before.view?.ownHand?.[0]));
+        h.session.play();
+        expect(h.session.getState().pending?.type).toBe("PLAY");
+      }
+      if (i !== 0) socket.frame(frame);
+      const state = h.session.getState();
+      const batch = required(effectBatches[i]);
+      expect(h.effects.mock.calls).toEqual(
+        muted || !batch.length ? [] : [[batch]],
+      );
+      if (frame.type === "ERROR") {
+        expect(state.view).toBe(before.view);
+        expect(state.revision).toBe(before.revision);
+        expect(state.pending).toBeNull();
+        expect(state.errorCode).toBe("STALE_TURN");
+        continue;
+      }
+      expect(state.view).toEqual(frame.view);
+      expect(state.revision).toBe(frame.revision);
+      if (frame.revision < 19)
+        oldTurn = Math.max(oldTurn, frame.view.turnId ?? 0);
+      if (frame.revision === 18)
+        h.session.toggleTile(required(frame.view.ownHand?.[0]));
+      if (frame.revision === 19) {
+        expect(before.view?.phase).toBe("TURN_ACTIVE");
+        expect(state.view?.phase).toBe("LOBBY");
+        expect(before.selected.length).toBe(1);
+        expect(state.selected).toEqual([]);
+        expect(state.muted).toBe(muted);
+        expect(state.credential).toBe(before.credential);
+        expect(h.saved.getItem(key)).toBe(JSON.stringify(state.credential));
+        listen.mockClear();
+        socket.frame(frame);
+        socket.frame({ ...frame, revision: frame.revision - 1 });
+        expect(h.session.getState()).toBe(state);
+        expect(listen).not.toHaveBeenCalled();
+        expect(h.effects).not.toHaveBeenCalled();
+      }
+      if (frame.revision === 20) {
+        expect(
+          state.view?.phase === "LOBBY" && state.view.lastGameResult,
+        ).toEqual(before.view?.phase === "LOBBY" && before.view.lastGameResult);
+        h.session.startGame();
+        expect(socket.sent.at(-1)).toEqual(exchanges.acceptedStart.command);
+      }
+      if (frame.revision >= 21)
+        expect(state.view).not.toHaveProperty("lastGameResult");
+      if (frame.revision === 21) {
+        expect(state.pending).toBeNull();
+        expect(state.view?.round).toBe(1);
+        for (const seat of frame.view.slots)
+          if (seat) expect(seat).toMatchObject({ chips: 64, isOut: false });
+      }
+      if (frame.revision === 22) {
+        expect(oldTurn).toBe(10);
+        expect(state.view?.turnId).toBe(oldTurn + 1);
+      }
+    }
+  }
+});
+
+test("an abandonment lobby clears an outstanding turn command and selection", () => {
+  const { observed, observer } = abandonmentRestart;
+  for (const [before, command] of [
+    [observed[0], "PLAY"],
+    [turnErrorExamples[5].before, "PASS"],
+  ] as const) {
+    const h = harness();
+    const s = h.enter(before, observer);
+    h.session.toggleTile(required(before.view.ownHand?.[0]));
+    if (command === "PLAY") h.session.play();
+    else h.session.pass();
+    expect(h.session.getState().pending?.type).toBe(command);
+    s.frame(abandonmentLobbyExamples[0].frame);
+    expect(h.session.getState()).toMatchObject({
+      pending: null,
+      selected: [],
+      view: abandonmentLobbyExamples[0].frame.view,
+    });
+  }
+});
+
+test("presence and rejected start preserve the completed game", () => {
+  const [first, offline, returned] = abandonmentLobbyExamples;
+  const h = harness();
+  const s = h.enter(first.frame, abandonmentRestart.observer);
+  h.session.startGame();
+  expect(h.session.getState().pending).toEqual({ type: "START_GAME" });
+  s.frame(abandonmentRestart.exchanges.rejectedStart.replies[0]);
+  expect(h.session.getState()).toMatchObject({
+    pending: null,
+    errorCode: "NOT_HOST",
+    view: first.frame.view,
+  });
+  for (const { frame } of [offline, returned]) {
+    s.frame(frame);
+    expect(h.session.getState().view).toEqual(frame.view);
+    expect(h.session.getState().view).toHaveProperty(
+      "lastGameResult",
+      abandonmentResults.afterRoundOne.result,
+    );
+  }
+});
+
+test("a revoked or disposed seat returns to entry and can join the result lobby anew", () => {
+  const { revoked, joined, rejectedStart } = abandonmentRestart.exchanges;
+  for (const error of [
+    revoked.replies[0],
+    { type: "ERROR", code: "ROOM_NOT_FOUND" },
+  ]) {
+    const h = harness(stored(revoked.command));
+    h.session.resume();
+    const s = h.latest();
+    s.events.open();
+    expect(s.sent).toEqual([revoked.command]);
+    s.frame(error);
+    expect(h.session.getState()).toMatchObject({
+      view: null,
+      connection: "DISCONNECTED",
+      credential: null,
+      errorCode: error.code,
+    });
+    expect(h.saved.getItem(key)).toBeNull();
+    expect(s.close).toHaveBeenCalledTimes(1);
+    h.session.joinRoom(roomCode);
+    const next = h.latest();
+    next.events.open();
+    expect(next.sent).toEqual([joined.command]);
+    for (const reply of joined.replies) next.frame(reply);
+    expect(h.session.getState()).toMatchObject({
+      view: joined.replies[1].view,
+      credential: { roomCode, token: joined.replies[0].token },
+      errorCode: null,
+    });
+    expect(h.saved.getItem(key)).toBe(stored(joined.replies[0]).getItem(key));
+    next.frame(rejectedStart.replies[0]);
+    expect(h.session.getState()).toMatchObject({
+      view: rejectedStart.after.view,
+      errorCode: "NOT_HOST",
+      pending: null,
+    });
+  }
 });

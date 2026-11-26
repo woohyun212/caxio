@@ -3,7 +3,11 @@ import type {
   PreviewResult,
   Tile,
 } from "@caxio/shared/contracts/domain";
-import { isRoomCode, type PlayerView } from "@caxio/shared/contracts/wire";
+import {
+  ABANDONMENT_NOTICE,
+  isRoomCode,
+  type PlayerView,
+} from "@caxio/shared/contracts/wire";
 import type { ClientModel } from "../contracts";
 import { seatLabel } from "../visual/layout";
 
@@ -145,6 +149,23 @@ function timeoutNotice(type: "PLAY" | "PASS") {
     ? "시간 초과로 최저 싱글을 냈어요"
     : "시간 초과로 패스했어요";
 }
+export function abandonmentNotice(
+  before: ClientModel | null,
+  model: ClientModel,
+) {
+  // SEATED creates a fresh credential object even when restoring the same token.
+  return before?.connection === "CONNECTED" &&
+    model.connection === "CONNECTED" &&
+    before.credential !== null &&
+    before.credential === model.credential &&
+    before.view &&
+    before.view.phase !== "LOBBY" &&
+    model.view?.phase === "LOBBY" &&
+    model.view.lastGameResult
+    ? ABANDONMENT_NOTICE
+    : "";
+}
+
 export function nextNotice(
   before: ClientModel | null,
   model: ClientModel,

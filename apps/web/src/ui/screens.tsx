@@ -1,4 +1,9 @@
-import type { PlayerView } from "@caxio/shared/contracts/wire";
+import {
+  ABANDONMENT_NOTICE,
+  LAST_GAME_RANKING_TITLE,
+  LEAVER_SEAT_PREFIX,
+  type PlayerView,
+} from "@caxio/shared/contracts/wire";
 import { type ReactNode, useRef, useState } from "react";
 import type { GameControlsProps } from "../contracts";
 import { seatLabel } from "../visual/layout";
@@ -119,55 +124,75 @@ export function Lobby({
           : `${seatLabel(offline)} 복귀 대기`);
   return (
     <section className="gc-lobby">
-      <label>
-        방 코드{" "}
-        <input
-          ref={code}
-          value={model.credential?.roomCode ?? ""}
-          readOnly
-          onFocus={(e) => e.target.select()}
-        />
-      </label>
-      <Action
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(code.current?.value ?? "");
-          } catch {
-            code.current?.focus();
-            code.current?.select();
-          }
-        }}
-      >
-        복사
-      </Action>
-      <div className="gc-lobby-seats">
+      <div className="gc-room-code">
+        <label>
+          방 코드{" "}
+          <input
+            ref={code}
+            value={model.credential?.roomCode ?? ""}
+            readOnly
+            onFocus={(e) => e.target.select()}
+          />
+        </label>
+        <Action
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(code.current?.value ?? "");
+            } catch {
+              code.current?.focus();
+              code.current?.select();
+            }
+          }}
+        >
+          복사
+        </Action>
+      </div>
+      <ul className="gc-lobby-seats" aria-label="현재 좌석">
         {view.slots.map((s, id) => (
-          <div key={seatLabel(id)}>
+          <li key={seatLabel(id)}>
             {seatLabel(id)}{" "}
             {s ? (s.isConnected ? "접속" : "복귀 대기") : "빈자리"}{" "}
             {id === view.hostSeatId ? "방장" : ""}{" "}
             {id === model.seatId ? "나" : ""}
-          </div>
+          </li>
         ))}
+      </ul>
+      <div className="gc-lobby-actions">
+        <div id="gc-start-reason">
+          {host ? reason : "방장의 시작을 기다려 주세요"}
+        </div>
+        {host && (
+          <Action
+            onClick={startGame}
+            reason={reason}
+            describedBy="gc-start-reason"
+          >
+            시작
+          </Action>
+        )}
+        <div aria-live="polite">
+          {message ||
+            (view.hostSeatId !== null
+              ? `${seatLabel(view.hostSeatId)}이 방장이에요`
+              : "")}
+        </div>
       </div>
-      <div id="gc-start-reason">
-        {host ? reason : "방장의 시작을 기다려 주세요"}
-      </div>
-      {host && (
-        <Action
-          onClick={startGame}
-          reason={reason}
-          describedBy="gc-start-reason"
-        >
-          시작
-        </Action>
+      {view.lastGameResult && (
+        <section className="gc-last-result" aria-labelledby="gc-last-ranking">
+          <div>{ABANDONMENT_NOTICE}</div>
+          <div>
+            {LEAVER_SEAT_PREFIX} {seatLabel(view.lastGameResult.leaverSeatId)}
+          </div>
+          <h2 id="gc-last-ranking">{LAST_GAME_RANKING_TITLE}</h2>
+          <ol>
+            {view.lastGameResult.ranking.map(({ seatId, rank, chips }) => (
+              <li key={seatId}>
+                {rank}위 {seatLabel(seatId)} {chips}칩
+              </li>
+            ))}
+          </ol>
+        </section>
       )}
-      <div aria-live="polite">
-        {message ||
-          (view.hostSeatId !== null
-            ? `${seatLabel(view.hostSeatId)}이 방장이에요`
-            : "")}
-      </div>
     </section>
   );
 }

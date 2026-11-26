@@ -6,6 +6,9 @@ import type {
 } from "@caxio/shared/contracts/domain";
 import {
   a4Settlement,
+  abandonmentLobbyExamples,
+  abandonmentRestart,
+  abandonmentResults,
   deadlines,
   dealExamples,
   epoch,
@@ -21,11 +24,14 @@ import {
   tiedRankingExample,
 } from "@caxio/shared/contracts/fixtures";
 import {
+  ABANDONMENT_NOTICE,
   ERROR_TEXT,
+  LAST_GAME_RANKING_TITLE,
+  LEAVER_SEAT_PREFIX,
   type PlayerView,
   UNKNOWN_ERROR_TEXT,
 } from "@caxio/shared/contracts/wire";
-import { Children, isValidElement, type ReactNode } from "react";
+import { Children, isValidElement, type ReactNode, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ClientModel, GameControlsProps } from "../contracts";
 import { atlases, fontFiles, tileRect } from "../visual/assets";
@@ -34,6 +40,7 @@ import { frame, palette } from "../visual/tokens";
 import { GameControls } from "./index";
 import { Action, EndScreen, Panel } from "./screens";
 import {
+  abandonmentNotice,
   automaticSettlement,
   clockText,
   describe,
@@ -870,6 +877,31 @@ test("wide lobby fits all five seat columns and preserves whole seat words", () 
   );
 });
 
+test("compact lobby seats and past ranking inherit the 24px lobby type", () => {
+  expect(css).toMatch(
+    /\.gc-compact \{[^{}]*font-size: 24px;\s*line-height: 24px;/,
+  );
+  expect(css).not.toMatch(
+    /\.gc-(?:lobby-seats|last-result)\b[^{}]*\{[^{}]*\b(?:font-size:|font: (?!inherit;))/,
+  );
+});
+test("compact lobby stacks the start reason and button and offsets Galmuri ink on every text row", () => {
+  expect(styleRule(".gc-wide .gc-lobby-actions")).toContain("display: flex");
+  expect(css).not.toMatch(
+    /(?:^|\n)\s*(?:\.gc-compact )?\.gc-lobby-actions\s*\{[^}]*display:\s*(?:flex|grid)/,
+  );
+  const tightRows = css.match(
+    /([^{}]+)\{\s*display: flow-root;\s*padding-block-start: calc\(var\(--gc-unit\) \/ 2\)/,
+  )?.[1];
+  for (const row of [
+    ".gc-lobby-seats > li",
+    ".gc-lobby-actions > div",
+    ".gc-last-result > :is(div, h2)",
+    ".gc-last-result li",
+  ])
+    expect(tightRows).toContain(row);
+});
+
 test("compact status, command, end and page buttons use adjacent 2px action groups", () => {
   const groups = (html: string) =>
     Array.from(html.matchAll(/<div class="gc-actions">(.*?)<\/div>/g), (m) =>
@@ -1359,5 +1391,117 @@ test("wide settlement rows leave ink room at either edge of the inner felt panel
 test("compact controls preserve room for seven hand slots during vertical scrollbar reflow", () => {
   expect(styleRule(":root:has(.gc-compact)")).toContain(
     "scrollbar-width: thin",
+  );
+});
+
+test("past ranking rows retain server order and chips, separate from current occupants and start controls", () => {
+  const reused = abandonmentLobbyExamples[3];
+  for (const { result } of Object.values(abandonmentResults)) {
+    for (const lobby of [reused, abandonmentLobbyExamples[1]]) {
+      if (lobby.frame.view.phase !== "LOBBY") throw Error("expected lobby");
+      const html = render(
+        props(
+          { ...lobby.frame.view, lastGameResult: result },
+          { seatId: lobby.recipient },
+        ),
+      );
+      const region = html.match(
+        /<section class="gc-last-result" aria-labelledby="gc-last-ranking">(.*?)<\/section>/,
+      )?.[1];
+      if (!region) throw Error("missing labelled result region");
+      expect(region).toContain(
+        `<h2 id="gc-last-ranking">${LAST_GAME_RANKING_TITLE}</h2>`,
+      );
+      expect(region).toContain(ABANDONMENT_NOTICE);
+      expect(region).toContain(
+        `${LEAVER_SEAT_PREFIX} ${result.leaverSeatId + 1}번`,
+      );
+      expect(tags(region, /<li>.*?<\/li>/g)).toEqual(
+        result.ranking.map(
+          (r) => `<li>${r.rank}위 ${r.seatId + 1}번 ${r.chips}칩</li>`,
+        ),
+      );
+      expect(region).not.toMatch(
+        /<button|gc-lobby-seats|나|방장|접속|복귀 대기/,
+      );
+      expect(html).toContain('aria-label="현재 좌석"');
+      if (lobby === reused) {
+        expect(html).toMatch(/<li>1번 접속\s+나<\/li>/);
+        expect(html).toContain("방장의 시작을 기다려 주세요");
+        expect(html).not.toContain(">시작<");
+      } else {
+        expect(html).toContain('id="gc-start-reason">3번 복귀 대기');
+        expect(html).toContain('aria-describedby="gc-start-reason">시작');
+      }
+    }
+  }
+  const fresh = render(props(seatReuse.joins[0].view));
+  for (const text of [
+    ABANDONMENT_NOTICE,
+    LAST_GAME_RANKING_TITLE,
+    LEAVER_SEAT_PREFIX,
+    "gc-last-result",
+  ])
+    expect(fresh).not.toContain(text);
+});
+
+// A render-phase update exercises the controls' hooks twice on one server renderer.
+function ControlsTransition({
+  game,
+  lobby,
+}: {
+  game: GameControlsProps;
+  lobby: GameControlsProps;
+}) {
+  const [p, setProps] = useState(game);
+  const controls = GameControls(p);
+  if (p === game) setProps(lobby);
+  return controls;
+}
+
+test("only the connected game-to-lobby transition updates the live abandonment announcement", () => {
+  const game = props(abandonmentRestart.observed[0].view, { seatId: 1 });
+  const lobby = props(abandonmentLobbyExamples[0].frame.view, {
+    credential: game.model.credential,
+    seatId: 1,
+  });
+  const prior = game.model,
+    current = lobby.model;
+  expect(abandonmentNotice(prior, current)).toBe(ABANDONMENT_NOTICE);
+  for (const previous of [
+    null,
+    { ...prior, view: null },
+    { ...prior, connection: "RESTORING" } as const,
+    { ...prior, connection: "DISCONNECTED" } as const,
+    { ...prior, credential: { roomCode, token: "other" } },
+    { ...prior, credential: { roomCode, token: "test" } },
+    current,
+    { ...current, view: abandonmentLobbyExamples[1].frame.view },
+  ]) {
+    expect(abandonmentNotice(previous, current)).toBe("");
+  }
+  const announced = renderToStaticMarkup(
+    <ControlsTransition game={game} lobby={lobby} />,
+  );
+  const silent = render(lobby);
+  expect(announced).toContain(`role="status">${ABANDONMENT_NOTICE}</span>`);
+  expect(
+    announced.replace(
+      `role="status">${ABANDONMENT_NOTICE}<`,
+      'role="status"><',
+    ),
+  ).toBe(silent);
+  expect(announced).toContain("2번이 방장이에요");
+  for (const html of [announced, silent])
+    expect(html).not.toMatch(/gc-end|data-panel="settlement"|대국 종료/);
+  const deal = render(
+    props(abandonmentRestart.exchanges.acceptedStart.replies[0].view, {
+      seatId: 1,
+    }),
+  );
+  expect(deal).toContain('class="gc-round">R1');
+  expect(deal).toContain("R1 · 숫자 1~13");
+  expect(deal).not.toMatch(
+    /시간 초과|gc-end|data-panel="settlement"|gc-last-result/,
   );
 });
