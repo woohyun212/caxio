@@ -4,6 +4,7 @@ import type { Message } from "@caxio/shared/contracts/wire";
 export const DEFAULT_TURN_LIMIT_MS = 30_000;
 export const SEAT_RESERVATION_MS = 30_000;
 export const ROOM_DISPOSAL_MS = 300_000; // Empty or finished room, plan §9.
+/** Number of consecutive own-turn expiries for a disconnected occupant, the last of which ends the game by abandonment. */
 export const ABANDONMENT_TURN_LIMIT = 3;
 export type AbandonmentLimitCheck = Assert<
   Exact<typeof ABANDONMENT_TURN_LIMIT, 3>
@@ -18,12 +19,14 @@ export interface RoomService {
   // A bound active-turn request checks stale ID, expiry, seat, ownership, duplication, legality, count, then strength.
   // The timer, late PLAY/PASS and authenticated RESUME by the current seat share one expiry path.
   // Before its deadline a return wins. At or after it, handle the expired turn once before binding;
-  // recheck the credential (RESUME_DENIED on the third expiry). Late current-id requests get TIME_EXPIRED.
+  // recheck the credential (RESUME_DENIED if that expiry ended the game by abandonment). Late current-id requests get TIME_EXPIRED.
   // Count only a disconnected occupant's own current deadline: exclude manual actions, connected timeouts,
   // other turns, OUT/spectators and duplicate, early or cancelled callbacks. Carry counts across rounds;
   // authenticated RESUME resets only the returning occupant's count.
-  // Choose timeoutAction(game) once. On the first two expiries count the successful automatic action.
-  // On the third, skip applyTurn, settlement and advance. Return the seat and credential and send
+  // Choose timeoutAction(game) once. Every expiry commits the automatic action exactly once unless
+  // this disconnected own-turn expiry reaches ABANDONMENT_TURN_LIMIT, which ends the game by abandonment.
+  // Below the limit, count a disconnected own-turn expiry when its automatic action succeeds.
+  // At the limit, skip applyTurn, settlement and advance. Return the seat and credential and send
   // exactly one lobby SNAPSHOT of the same new revision to each remaining connection.
   receive(connection: RoomConnection, frame: unknown): void;
   // The HTTP adapter reports each closed connection exactly once.
