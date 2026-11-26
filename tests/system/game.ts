@@ -27,7 +27,7 @@ import {
   requireCheck,
 } from "./judges";
 
-class Client {
+export class Client {
   readonly ws: WebSocket;
   credential?: Seated;
   previous?: Snapshot;
@@ -38,7 +38,7 @@ class Client {
   wake?: () => void;
   constructor(
     url: URL,
-    readonly room: Game,
+    readonly room: SocketRoom,
   ) {
     this.ws = new WebSocket(url);
     this.ws.onopen = () => this.wake?.();
@@ -53,54 +53,17 @@ class Client {
     this.ws.onmessage = ({ data }) => {
       if (this.ignored || room.failure) return;
       try {
-        const message = judgeFrame(
-          data,
-          this.credential?.seatId ?? null,
-          room.tokens,
-          this.previous,
-        );
-        if (!message) return;
-        if (message.type === "SEATED") {
-          if (!room.tokens.has(message.seatId)) {
-            requireCheck(
-              room.history.every(
-                ([seat, raw]) =>
-                  seat === message.seatId || !raw.includes(message.token),
-              ),
-              "foreign seat token in earlier frame",
-            );
-            room.tokens.set(message.seatId, message.token);
-          }
-          this.credential = message;
-        }
-        // Once all tokens are known, the inline check covers future frames.
-        if (room.tokens.size < 3)
-          room.history.push([this.credential?.seatId ?? null, data]);
-        else room.history.length = 0;
-        if (message.type === "SNAPSHOT") {
-          checkPublic(room.publics, message);
-          if (room.connected !== undefined)
-            requireCheck(
-              message.view.slots[room.connected]?.isConnected,
-              "replaced socket disconnected live seat",
-            );
-          const prev = this.previous;
-          this.previous = message;
-          if (prev && isPresence(prev.view, message.view)) {
-            // Consume presence in wire order even when game transitions are already queued.
-            if (this.queue.length === 0 && this.view) this.view = message.view;
-            return;
-          }
-        }
-        this.queue.push(message);
-        this.wake?.();
+        room.receive(this, data);
       } catch (error) {
         room.fail(error);
       }
     };
   }
-  async wait(predicate: () => boolean, label: string) {
-    const end = Math.min(performance.now() + this.room.frameMs, this.room.end);
+  async wait(predicate: () => boolean, label: string, extraMs = 0) {
+    const end = Math.min(
+      performance.now() + this.room.frameMs + extraMs,
+      this.room.end,
+    );
     while (!predicate()) {
       this.room.check();
       requireCheck(performance.now() < end, `frame budget exceeded (${label})`);
@@ -117,8 +80,9 @@ class Client {
   }
   async next<T extends Message["type"]>(
     type: T,
+    extraMs = 0,
   ): Promise<Extract<Message, { type: T }>> {
-    await this.wait(() => this.queue.length > 0, type);
+    await this.wait(() => this.queue.length > 0, type, extraMs);
     const m = this.queue.shift();
     requireCheck(
       m?.type === type,
@@ -148,22 +112,15 @@ const codes = [
   "ILLEGAL_HAND",
   "NOT_HIGHER",
 ] as const;
-export class Game {
+export abstract class SocketRoom {
+  abstract receive(client: Client, data: string): void;
   clients: Client[] = [];
-  live: Client[] = [];
-  tokens = new Map<SeatId, string>();
-  history: [SeatId | null, string][] = [];
-  publics = new Map<number, ReturnType<typeof publicTable>>();
   failure?: Error;
-  currentCheck = "ws.open";
-  connected?: SeatId;
   url: URL;
-  exercised = new Set<ErrorCode>();
   constructor(
     origin: string,
     readonly frameMs: number,
     readonly end: number,
-    readonly passed: (id: string) => void,
   ) {
     this.url = new URL(WS_PATH, origin);
     this.url.protocol = this.url.protocol === "https:" ? "wss:" : "ws:";
@@ -191,6 +148,71 @@ export class Game {
     this.clients.push(client);
     await client.wait(() => client.ws.readyState === WebSocket.OPEN, "open");
     return client;
+  }
+  closeAll() {
+    this.fail(new ProbeFailure("game finished"));
+    for (const client of this.clients) client.close();
+  }
+}
+export class Game extends SocketRoom {
+  live: Client[] = [];
+  tokens = new Map<SeatId, string>();
+  history: [SeatId | null, string][] = [];
+  publics = new Map<number, ReturnType<typeof publicTable>>();
+  currentCheck = "ws.open";
+  connected?: SeatId;
+  exercised = new Set<ErrorCode>();
+  constructor(
+    origin: string,
+    frameMs: number,
+    end: number,
+    readonly passed: (id: string) => void,
+  ) {
+    super(origin, frameMs, end);
+  }
+  receive(client: Client, data: string) {
+    const message = judgeFrame(
+      data,
+      client.credential?.seatId ?? null,
+      this.tokens,
+      client.previous,
+    );
+    if (!message) return;
+    if (message.type === "SEATED") {
+      if (!this.tokens.has(message.seatId)) {
+        requireCheck(
+          this.history.every(
+            ([seat, raw]) =>
+              seat === message.seatId || !raw.includes(message.token),
+          ),
+          "foreign seat token in earlier frame",
+        );
+        this.tokens.set(message.seatId, message.token);
+      }
+      client.credential = message;
+    }
+    // Once all tokens are known, the inline check covers future frames.
+    if (this.tokens.size < 3)
+      this.history.push([client.credential?.seatId ?? null, data]);
+    else this.history.length = 0;
+    if (message.type === "SNAPSHOT") {
+      checkPublic(this.publics, message);
+      if (this.connected !== undefined)
+        requireCheck(
+          message.view.slots[this.connected]?.isConnected,
+          "replaced socket disconnected live seat",
+        );
+      const prev = client.previous;
+      client.previous = message;
+      if (prev && isPresence(prev.view, message.view)) {
+        // Consume presence in wire order even when game transitions are already queued.
+        if (client.queue.length === 0 && client.view)
+          client.view = message.view;
+        return;
+      }
+    }
+    client.queue.push(message);
+    client.wake?.();
   }
   async seat(client: Client, cmd: Command, expected?: Seated) {
     this.idle();
@@ -494,8 +516,7 @@ export class Game {
       this.idle();
       this.passed("resume.final");
     } finally {
-      this.fail(new ProbeFailure("game finished"));
-      for (const c of this.clients) c.close();
+      this.closeAll();
     }
   }
 }

@@ -123,11 +123,10 @@ export async function runProbe(
   log(`summary ${bad ? "FAIL" : "PASS"} ${good} passed, ${bad} failed`);
   return bad ? 1 : 0;
 }
-if (import.meta.main) {
-  let origin: string | undefined;
+export function cliOrigin(args: readonly string[]) {
   try {
-    const arg = process.argv[2];
-    if (arg && process.argv.length === 3) {
+    const arg = args[0];
+    if (arg && args.length === 1) {
       const url = new URL(arg);
       if (
         ["http:", "https:"].includes(url.protocol) &&
@@ -137,9 +136,12 @@ if (import.meta.main) {
         !url.search &&
         !url.hash
       )
-        origin = url.origin;
+        return url.origin;
     }
   } catch {}
+}
+if (import.meta.main) {
+  const origin = cliOrigin(process.argv.slice(2));
   if (origin) process.exitCode = await runProbe(origin);
   else {
     console.error("Usage: bun tests/system/probe.ts <origin>");
