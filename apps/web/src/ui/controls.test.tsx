@@ -1668,3 +1668,19 @@ test("leave sits in the lobby, menu and end screen and confirms only from an act
   click(Action(findAction(panel("leave"), "나가기")));
   expect(leave).toHaveBeenCalledTimes(2);
 });
+test("entry, lobby, panel, end and compact rows keep space between adjacent blocks", () => {
+  for (const [selector, declaration] of [
+    [".gc-entry > :is(h1, .gc-name)", "margin-bottom: 8px"],
+    [".gc-entry > :where(div:not(.gc-name, :empty))", "margin-top: 8px"],
+    [".gc-compact .gc-entry > form", "margin-top: 8px"],
+    [".gc-lobby > * + *", "margin-top: 8px"],
+    [".gc-wide .gc-room-code", "gap: 8px"],
+    ['.gc-panel[data-panel="menu"]', "gap: 2px 8px"],
+    ['.gc-wide .gc-panel:not([data-panel="settlement"])', "padding-block: 2px"],
+    [".gc-wide .gc-end", "margin-block: 4px"],
+    [".gc-end > .gc-actions", "margin-top: 8px"],
+    [".gc-compact :is(.gc-status, .gc-command)", "padding-inline: 4px"],
+    [".gc-compact .gc-table", "margin-block: 4px"],
+  ] as const)
+    expect(styleRule(selector)).toContain(declaration);
+});

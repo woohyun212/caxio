@@ -232,6 +232,7 @@
   padding: 2px 8px;
   box-shadow: 0 2px var(--gc-sage);
   overflow-wrap: anywhere;
+  word-break: keep-all;
 }
 .gc-actions {
   display: flex;
@@ -249,12 +250,27 @@
   overflow-wrap: anywhere;
 }
 .gc-entry form,
+.gc-entry .gc-name,
 .gc-entry {
   display: flex;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
   gap: 4px;
+}
+/* Rows of the entry sit 8px apart, and the create button 12px from the code group.
+   Empty status rows keep their place in the tree without adding space. */
+.gc-entry {
+  gap: 0 12px;
+}
+.gc-entry .gc-name {
+  width: 100%;
+}
+.gc-entry > :is(h1, .gc-name) {
+  margin-bottom: 8px;
+}
+.gc-entry > :where(div:not(.gc-name, :empty)) {
+  margin-top: 8px;
 }
 .gc-entry input,
 .gc-lobby input {
@@ -294,7 +310,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 8px;
 }
 .gc-lobby-seats,
 .gc-last-result ol {
@@ -302,9 +318,12 @@
   padding: 0;
   list-style: none;
 }
+/* Code, seats, start and the past result read as separate blocks. */
+.gc-lobby > * + * {
+  margin-top: 8px;
+}
 .gc-last-result {
   word-break: keep-all;
-  margin-top: 4px;
   padding: 4px;
   border: 1px solid var(--gc-ink);
 }
@@ -317,7 +336,7 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  column-gap: 4px;
+  gap: 4px;
 }
 .gc-wide .gc-lobby-actions [aria-live] {
   width: 100%;
@@ -464,7 +483,13 @@
   );
   overflow: auto;
   inset-inline: 12px;
-  padding: 4px;
+  /* Clear of the nameplates above and the paper message row below. */
+  margin-block: 4px;
+  padding: 8px;
+}
+.gc-end > .gc-actions {
+  margin-top: 8px;
+  justify-content: center;
 }
 /* Keep seven 48px slots and six 2px gaps while a 360px viewport sheds its scrollbar. */
 :root:has(.gc-compact) {
@@ -476,8 +501,7 @@
   line-height: 24px;
   overflow-wrap: anywhere;
 }
-.gc-compact .gc-entry,
-.gc-compact .gc-entry form {
+.gc-compact .gc-entry {
   flex-direction: column;
   align-items: stretch;
 }
@@ -493,6 +517,19 @@
 .gc-compact .gc-lobby-seats > li {
   min-height: 44px;
   margin: 2px;
+}
+/* The code and its input share a line; copy and leave wrap together below them. */
+.gc-compact .gc-room-code {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 8px;
+}
+.gc-compact .gc-room-code > :where(label) {
+  flex-basis: 100%;
+}
+.gc-compact .gc-lobby-actions > button {
+  margin-block: 4px;
 }
 .gc-compact .gc-board {
   display: grid;
@@ -553,6 +590,7 @@
 }
 .gc-compact .gc-caption {
   display: block;
+  margin-top: 4px;
 }
 .gc-compact .gc-table,
 .gc-compact .gc-hand {
@@ -566,6 +604,13 @@
 .gc-compact .gc-table {
   min-height: 80px;
   width: 100%;
+  /* Keep the center tiles off the caption and the hand band. */
+  margin-block: 4px;
+}
+/* Status and command text stay off the screen edges and the buttons. */
+.gc-compact :is(.gc-status, .gc-command) {
+  padding-inline: 4px;
+  column-gap: 8px;
 }
 .gc-compact .gc-hand {
   grid-area: hand;
@@ -591,6 +636,9 @@
 }
 .gc-compact .gc-panel {
   justify-self: stretch;
+}
+.gc-compact .gc-end {
+  padding: 8px;
 }
 .gc-compact .gc-end .gc-actions > :first-child {
   flex-shrink: 0;
@@ -760,4 +808,30 @@
   .gc-compact .gc-lobby-actions {
     grid-area: actions;
   }
+}
+
+/* Menu actions share one row; rule pages and the leave notice keep their text off the buttons. */
+.gc-panel[data-panel="menu"] {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px 8px;
+}
+.gc-panel:is([data-panel="rules"], [data-panel="leave"]) > .gc-actions {
+  margin-top: 2px;
+}
+.gc-wide .gc-panel:not([data-panel="settlement"]) {
+  padding-block: 2px;
+}
+/* Compact entry: labels above their inputs, the code input beside its button. */
+.gc-compact .gc-entry label {
+  width: 100%;
+  text-align: start;
+}
+.gc-compact .gc-entry form input {
+  flex: 1;
+  width: auto;
+}
+.gc-compact .gc-entry > form {
+  margin-top: 8px;
 }
