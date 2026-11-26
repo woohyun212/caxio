@@ -9,6 +9,7 @@ import type {
 } from "../../packages/shared/src/contracts/wire";
 import {
   checkAbandonmentSequence,
+  checkLeave,
   checkLobby,
   checkRestart,
   joined,
@@ -19,6 +20,7 @@ import { type Client, SocketRoom } from "./game";
 import {
   checkAction,
   checkDeal,
+  checkNames,
   isPresence,
   judgeFrame,
   need,
@@ -28,9 +30,14 @@ import {
 } from "./judges";
 import { cliOrigin } from "./probe";
 
+// Seat 1 stays unnamed. Seat 0 is vacated by abandonment and its replacement joins unnamed.
+const seatNames = ["철수", undefined, "Bob7", "ㅋㅋ"] as const;
+const naming = (name?: string) => (name === undefined ? {} : { name });
 class AbandonRoom extends SocketRoom {
   live: Client[] = [];
   tokens = new Map<SeatId, string>();
+  names = new Map<SeatId, string | undefined>();
+  revoked: string[] = [];
   history: { owner?: string; raw: string }[] = [];
   receive(client: Client, raw: string) {
     const m = need(
@@ -41,6 +48,11 @@ class AbandonRoom extends SocketRoom {
         client.previous,
       ),
       "duplicate snapshot revision",
+    );
+    requireCheck(!client.left, "frame sent to the leaver");
+    requireCheck(
+      this.revoked.every((token) => !raw.includes(token)),
+      "revoked credential in frame",
     );
     if (m.type === "SEATED") {
       requireCheck(
@@ -156,15 +168,19 @@ export async function runAbandonProbe(
     room = game;
     let code = "";
     for (const seat of seats) {
+      const name = seatNames[seat];
       const c = await game.bind(
         seat === 0
-          ? { type: "CREATE_ROOM" }
-          : { type: "JOIN_ROOM", roomCode: code },
+          ? { type: "CREATE_ROOM", ...naming(name) }
+          : { type: "JOIN_ROOM", roomCode: code, ...naming(name) },
         seat,
       );
       code = credential(c).roomCode;
-      for (const f of await game.frames())
+      game.names.set(seat, name);
+      for (const f of await game.frames()) {
         checkLobby(f.view, seats.slice(0, seat + 1));
+        checkNames(f.view, game.names);
+      }
     }
     pass();
     id = "abandon.first";
@@ -219,6 +235,8 @@ export async function runAbandonProbe(
             credential(need(game.live[i], "missing seat")).seatId,
             move.action,
           );
+      // Names persist while the host is away; checked after the sequence judge names its own faults.
+      for (const f of frames) checkNames(f.view, game.names);
       if (next.automatic.length > evidence.automatic.length)
         pass(`turnId=${next.automatic.at(-1)}`);
       if (next.third && !evidence.third) {
@@ -258,6 +276,7 @@ export async function runAbandonProbe(
     for (const f of await game.frames()) checkLobby(f.view, remaining, result);
     pass("credential=same");
     id = "abandon.lobby.join";
+    game.names.set(0, undefined);
     const replacement = await game.bind(
       { type: "JOIN_ROOM", roomCode: code },
       0,
@@ -267,7 +286,10 @@ export async function runAbandonProbe(
       "replacement received revoked credential",
     );
     frames = await game.frames();
-    for (const f of frames) checkLobby(f.view, joined, result);
+    for (const f of frames) {
+      checkLobby(f.view, joined, result);
+      checkNames(f.view, game.names);
+    }
     pass("credential=replaced");
     id = "abandon.lobby.rejected-start";
     await game.deny(replacement, { type: "START_GAME" }, "NOT_HOST");
@@ -346,13 +368,53 @@ export async function runAbandonProbe(
     }
     id = "abandon.restart.action";
     actor.send(action);
-    for (const [i, f] of (await game.frames(frames)).entries())
+    const acted = await game.frames(frames);
+    for (const [i, f] of acted.entries())
       checkAction(
         need(frames[i], "missing opening turn").view,
         f.view,
         credential(need(game.live[i], "missing seat")).seatId,
         action,
       );
+    game.idle();
+    pass();
+    id = "abandon.leave";
+    const turn = need(acted[0], "missing turn").view;
+    const at = game.live.findIndex((c) => {
+      const seat = credential(c).seatId;
+      return seat !== turn.currentTurn && game.names.get(seat);
+    });
+    requireCheck(at >= 0, "missing named waiting seat");
+    const leaver = need(game.live.splice(at, 1)[0], "missing leaver");
+    const left = credential(leaver);
+    leaver.left = true;
+    leaver.send({ type: "LEAVE_ROOM" });
+    let ranking: unknown;
+    for (const f of await game.frames())
+      ranking = checkLeave(turn, f.view, left.seatId).ranking;
+    game.idle();
+    pass(`seat=${left.seatId} ranking=${JSON.stringify(ranking)}`);
+    id = "abandon.leave.revoked";
+    game.revoked.push(left.token);
+    leaver.left = false;
+    leaver.credential = undefined;
+    leaver.previous = undefined;
+    await game.deny(
+      leaver,
+      { type: "RESUME", roomCode: code, token: left.token },
+      "RESUME_DENIED",
+    );
+    pass("credential=denied");
+    id = "abandon.leave.new-room";
+    leaver.send({ type: "CREATE_ROOM" });
+    const seated = await leaver.next("SEATED");
+    requireCheck(seated.roomCode !== code, "leaver created no new room");
+    const fresh = await leaver.next("SNAPSHOT");
+    requireCheck(
+      fresh.view.phase === "LOBBY" &&
+        equal(fresh.view.seatOrder, [seated.seatId]),
+      "new room is not a fresh lobby",
+    );
     game.idle();
     pass();
     log(`summary PASS ${good} passed, 0 failed`);
