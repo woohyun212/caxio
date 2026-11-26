@@ -5,6 +5,7 @@ import {
   phaseExamples,
   roomCode,
 } from "@caxio/shared/contracts/fixtures";
+import type { RoomSettings } from "@caxio/shared/contracts/settings";
 import {
   decodeCommand,
   decodeServerMessage,
@@ -17,7 +18,7 @@ import { createRoomService } from "./index";
 import { at, rulesFixture, tile } from "./rules.fixture";
 
 export function harness(
-  maxRounds = 5,
+  fixtureRoundLimit?: number,
   turnLimitMs?: number,
   dealRng = () => 0.25,
 ) {
@@ -39,7 +40,7 @@ export function harness(
   let credentialDelivery:
     | { connection: RoomConnection; token: string | undefined }
     | undefined;
-  const { rules, calls } = rulesFixture(maxRounds, dealRng);
+  const { rules, calls } = rulesFixture(fixtureRoundLimit, dealRng);
   function event(fn: () => void) {
     const before = clock.reads;
     fn();
@@ -94,6 +95,7 @@ export function harness(
         const keys = Object.keys(phaseExamples[1].view).filter(
           (k) => k !== "ownHand",
         );
+        keys.push("turnLimitSeconds");
         if (v.phase === "LOBBY") {
           keys.push("hostSeatId", "canStart");
           if (v.lastGameResult) keys.push("lastGameResult");
@@ -171,15 +173,16 @@ export function harness(
     expect(calls.manual + calls.automatic).toBe(accepted);
   }
   const join = (name: string) => request(name, { type: "JOIN_ROOM", roomCode });
-  const create = () => request("A", { type: "CREATE_ROOM" });
+  const create = (settings: RoomSettings = {}) =>
+    request("A", { type: "CREATE_ROOM", ...settings });
   const resume = (name: string, from: string) =>
     request(name, { type: "RESUME", roomCode, token: `fixture-${from}` });
-  function lobby(count = 3) {
-    create();
+  function lobby(count = 3, settings?: RoomSettings) {
+    create(settings);
     for (const name of ["B", "C", "D", "E"].slice(0, count - 1)) join(name);
   }
-  function start(count = 3) {
-    lobby(count);
+  function start(count = 3, settings?: RoomSettings) {
+    lobby(count, settings);
     request("A", { type: "START_GAME" });
   }
   const timer = () => at(timers.at(-1));

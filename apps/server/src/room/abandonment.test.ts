@@ -5,10 +5,10 @@ import {
   a4Settlement,
   abandonmentResults,
   firstDealState,
-  nonHostAbandonmentLobby,
   roomCode,
 } from "@caxio/shared/contracts/fixtures";
 import { ROOM_DISPOSAL_MS, SEAT_RESERVATION_MS } from "../contracts";
+import { nonHostAbandonmentLobby } from "../fixtures/server-snapshots";
 import { at, tile } from "./rules.fixture";
 import { harness } from "./service.fixture";
 

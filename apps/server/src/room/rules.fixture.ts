@@ -71,7 +71,10 @@ const unused = (): never => {
 
 // A fixed-deal single-tile script drives real turns to the W1 settlement examples.
 // Only the pair/error examples and these singles are supported by the double.
-export function rulesFixture(maxRounds: number, rng: () => number) {
+export function rulesFixture(
+  fixtureRoundLimit: number | undefined,
+  rng: () => number,
+) {
   const calls = {
     deals: 0,
     manual: 0,
@@ -141,8 +144,9 @@ export function rulesFixture(maxRounds: number, rng: () => number) {
       calls.endChecks++;
       return engine.isGameOver(state);
     },
-    startRound(order, dealRng) {
+    startRound(order, dealRng, maxRounds) {
       expect(dealRng).toBe(rng);
+      const roomMaxRounds = at(maxRounds);
       calls.deals++;
       const leader = at(order[0]);
       const players = slots((id) => {
@@ -163,7 +167,8 @@ export function rulesFixture(maxRounds: number, rng: () => number) {
         currentTurn: leader,
         roundLeader: leader,
         lastPlayedBy: leader,
-        maxRounds,
+        // Frozen endgame examples simulate one- and two-round games.
+        maxRounds: fixtureRoundLimit ?? roomMaxRounds,
         maxNumber: order.length === 5 ? 15 : order.length === 4 ? 13 : 9,
       });
     },

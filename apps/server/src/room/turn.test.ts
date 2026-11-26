@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import {
-  deadlines,
   epoch,
   errorExamples,
   phaseAndResumeErrors,
   roomCode,
   turnErrorExamples,
 } from "@caxio/shared/contracts/fixtures";
+import { deadlines } from "../fixtures/server-snapshots";
 import { at } from "./rules.fixture";
 import { finish, harness, penultimate } from "./service.fixture";
 
@@ -45,10 +45,14 @@ for (const c of deadlines.cases)
     });
   }
 test("early callback rearms remaining time and replay of early callback is inert", () => {
-  const h = harness(5, 53);
+  const h = harness(undefined, 53);
   h.start();
   const old = h.timer();
   expect(old.delay).toBe(53);
+  expect(h.latest().view).toMatchObject({
+    turnLimitSeconds: 30,
+    deadline: h.latest().serverNow + 53,
+  });
   h.clock.time += 52;
   const count = h.log.length;
   old.fire();

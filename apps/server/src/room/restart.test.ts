@@ -1,15 +1,14 @@
 import { expect, mock, spyOn, test } from "bun:test";
 import { rules } from "@caxio/shared";
-import {
-  abandonmentLobbyExamples,
-  abandonmentLobbyResume,
-  abandonmentResults,
-  abandonmentRestart as replay,
-  roomCode,
-} from "@caxio/shared/contracts/fixtures";
+import { abandonmentResults, roomCode } from "@caxio/shared/contracts/fixtures";
 import type { Message, Snapshot } from "@caxio/shared/contracts/wire";
 import { ROOM_DISPOSAL_MS } from "../contracts";
 import { abandonmentShuffle } from "../fixtures/abandonment-shuffle";
+import {
+  abandonmentLobbyExamples,
+  abandonmentLobbyResume,
+  abandonmentRestart as replay,
+} from "../fixtures/server-snapshots";
 import { at } from "./rules.fixture";
 import { harness } from "./service.fixture";
 

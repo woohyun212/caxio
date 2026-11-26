@@ -1,14 +1,16 @@
 import { expect, test } from "bun:test";
 import {
-  dealExamples,
   epoch,
-  lostResume,
   phaseAndResumeErrors,
   roomCode,
-  seatedRejections,
-  seatReuse,
 } from "@caxio/shared/contracts/fixtures";
 import { ROOM_DISPOSAL_MS, SEAT_RESERVATION_MS } from "../contracts";
+import {
+  dealExamples,
+  lostResume,
+  seatedRejections,
+  seatReuse,
+} from "../fixtures/server-snapshots";
 import { at } from "./rules.fixture";
 import { harness } from "./service.fixture";
 

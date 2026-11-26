@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import {
-  epoch,
-  leaveExamples,
-  roomCode,
-} from "@caxio/shared/contracts/fixtures";
+import { epoch, roomCode } from "@caxio/shared/contracts/fixtures";
 import type { PlayerView } from "@caxio/shared/contracts/wire";
+import { leaveExamples } from "../fixtures/server-snapshots";
 import { at } from "./rules.fixture";
 import { finish, harness } from "./service.fixture";
 

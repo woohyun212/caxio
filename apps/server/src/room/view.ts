@@ -4,10 +4,11 @@ import type {
   Slots,
   Tile,
 } from "@caxio/shared/contracts/domain";
-import {
-  DEFAULT_MAX_ROUNDS,
-  INITIAL_CHIPS,
-} from "@caxio/shared/contracts/engine";
+import { INITIAL_CHIPS } from "@caxio/shared/contracts/engine";
+import type {
+  MaxRounds,
+  TurnLimitSeconds,
+} from "@caxio/shared/contracts/settings";
 import type {
   LastGameResult,
   PlayerView,
@@ -29,6 +30,9 @@ export interface Occupant {
 
 export interface Room {
   code: string;
+  readonly turnLimitSeconds: TurnLimitSeconds;
+  readonly maxRounds: MaxRounds;
+  readonly turnLimitMs: number;
   // Monotonic join numbers keep slot reuse independent of host and dealing order.
   occupants: Map<number, Occupant>;
   nextJoin: number;
@@ -81,7 +85,8 @@ function table(room: Room, recipient: SeatId): PublicTable {
       phase: "LOBBY",
       round: 0,
       maxNumber: null,
-      maxRounds: DEFAULT_MAX_ROUNDS,
+      maxRounds: room.maxRounds,
+      turnLimitSeconds: room.turnLimitSeconds,
       slots,
       seatOrder: occupants.map((s) => s.id),
       activePlayers: [],
@@ -113,6 +118,7 @@ function table(room: Room, recipient: SeatId): PublicTable {
     slots,
     round,
     maxRounds,
+    turnLimitSeconds: room.turnLimitSeconds,
     maxNumber,
     seatOrder: [...game.seatOrder],
     activePlayers: [...game.activePlayers],

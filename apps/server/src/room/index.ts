@@ -1,5 +1,9 @@
 import type { GameState, SeatId } from "@caxio/shared/contracts/domain";
 import {
+  DEFAULT_MAX_ROUNDS,
+  DEFAULT_TURN_LIMIT_SECONDS,
+} from "@caxio/shared/contracts/settings";
+import {
   decodeRequest,
   type ErrorCode,
   isRoomCode,
@@ -22,7 +26,6 @@ export const createRoomService: CreateRoomService = (deps) => {
   const bindings = new Map<RoomConnection, { room: Room; seat: Occupant }>();
   const replaced = new WeakSet<RoomConnection>();
   const lookupMisses = new WeakMap<RoomConnection, number>();
-  const limit = deps.turnLimitMs ?? DEFAULT_TURN_LIMIT_MS;
 
   // Each arm owns its callback. Even explicitly replaying a cancelled or early callback is harmless.
   function scheduleAt(
@@ -158,7 +161,7 @@ export const createRoomService: CreateRoomService = (deps) => {
     room.game = game;
     if (game.phase === "TURN_ACTIVE") {
       room.lastTurnId = game.turnId;
-      room.deadline = now + limit;
+      room.deadline = now + room.turnLimitMs;
       room.cancelTurn = scheduleAt(room.deadline, now, (time) =>
         expire(room, game, time),
       );
@@ -239,6 +242,13 @@ export const createRoomService: CreateRoomService = (deps) => {
             code = deps.newRoomCode();
           const room: Room = {
             code,
+            turnLimitSeconds:
+              command.turnLimitSeconds ?? DEFAULT_TURN_LIMIT_SECONDS,
+            maxRounds: command.maxRounds ?? DEFAULT_MAX_ROUNDS,
+            turnLimitMs:
+              command.turnLimitSeconds === undefined
+                ? (deps.turnLimitMs ?? DEFAULT_TURN_LIMIT_MS)
+                : command.turnLimitSeconds * 1000,
             occupants: new Map(),
             nextJoin: 0,
             lastTurnId: 0,
@@ -284,7 +294,11 @@ export const createRoomService: CreateRoomService = (deps) => {
           const order = [...room.occupants.values()].map((s) => s.id);
           if (order[0] !== seat.id) return error("NOT_HOST");
           if (!ready(room)) return error("NOT_READY");
-          const game = deps.rules.startRound(order, deps.dealRng);
+          const game = deps.rules.startRound(
+            order,
+            deps.dealRng,
+            room.maxRounds,
+          );
           for (const occupant of room.occupants.values())
             occupant.disconnectedTurns = 0;
           delete room.lastGameResult;

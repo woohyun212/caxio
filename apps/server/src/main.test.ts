@@ -6,15 +6,11 @@ import { createInterface } from "node:readline";
 import { rules } from "@caxio/shared";
 import type { Action, GameState, SeatId } from "@caxio/shared/contracts/domain";
 import {
-  abandonmentRestart,
-  deadlines,
   epoch,
-  lostResume,
-  seatReuse,
-  spectatorExamples,
   turnErrorExamples,
   turnValidationOrder,
 } from "@caxio/shared/contracts/fixtures";
+import type { RoomSettings } from "@caxio/shared/contracts/settings";
 import {
   decodeCommand,
   decodeServerMessage,
@@ -29,6 +25,13 @@ import { DEFAULT_TURN_LIMIT_MS } from "./contracts";
 import { abandonmentShuffle } from "./fixtures/abandonment-shuffle";
 import actions from "./fixtures/four-player-actions.json";
 import { makeRandom, seed } from "./fixtures/four-player-seed";
+import {
+  abandonmentRestart,
+  deadlines,
+  lostResume,
+  seatReuse,
+  spectatorExamples,
+} from "./fixtures/server-snapshots";
 import { startGameServer } from "./main";
 
 function need<T>(value: T | null | undefined): T {
@@ -117,12 +120,12 @@ class Table {
     await c.opened;
     return c;
   }
-  async lobby(count: number) {
+  async lobby(count: number, settings: RoomSettings = {}) {
     for (let i = 0; i < count; i++) {
       const c = await this.open();
       const cmd =
         i === 0
-          ? { type: "CREATE_ROOM" }
+          ? { type: "CREATE_ROOM", ...settings }
           : {
               type: "JOIN_ROOM",
               roomCode: need(this.seats[0]?.credential).roomCode,
@@ -252,6 +255,55 @@ for (const timerFirst of [false, true]) {
     });
   }
 }
+
+test("five sockets expire 15-second turns and finish round three with three survivors", async () => {
+  const fake = clock();
+  const settings = { turnLimitSeconds: 15, maxRounds: 3 } as const;
+  await atTable(
+    { now: () => fake.time, schedule: fake.schedule, random: makeRandom(1) },
+    async (table) => {
+      const invalid = await table.open();
+      await invalid.reject(
+        { type: "CREATE_ROOM", maxRounds: 4 },
+        "INVALID_MESSAGE",
+      );
+      await table.lobby(5, settings);
+      let frames = await table.start();
+      for (;;) {
+        const first = need(frames[0]);
+        for (const frame of frames) {
+          expect(frame.view).toMatchObject({
+            ...settings,
+            phase: first.view.phase,
+          });
+        }
+        if (first.view.phase === "GAME_OVER") {
+          for (const frame of frames) {
+            expect(frame.view.round).toBe(3);
+            expect(frame.view.activePlayers.length).toBeGreaterThanOrEqual(3);
+          }
+          return;
+        }
+        if (first.view.phase === "TURN_ACTIVE") {
+          for (const frame of frames)
+            expect(frame.view.deadline).toBe(frame.serverNow + 15000);
+          fake.time = need(first.view.deadline);
+          need(fake.timers.at(-1)).fire();
+        }
+        frames = await table.snapshots();
+        if (first.view.phase === "TURN_ACTIVE") {
+          for (const frame of frames) {
+            expect(frame.serverNow).toBe(fake.time);
+            expect(frame.view.lastAction).toMatchObject({
+              turnId: first.view.turnId,
+              automatic: true,
+            });
+          }
+        }
+      }
+    },
+  );
+});
 
 test("A6 five-minute turn limit reaches every seat and expires at the configured deadline", async () => {
   const fake = clock();

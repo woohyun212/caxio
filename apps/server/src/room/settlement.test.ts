@@ -1,14 +1,16 @@
 import { expect, test } from "bun:test";
 import {
   epoch,
-  lastPlaySequence,
-  newRoomSequence,
   phaseAndResumeErrors,
-  phaseExamples,
   roomCode,
-  spectatorExamples,
 } from "@caxio/shared/contracts/fixtures";
 import { ROOM_DISPOSAL_MS } from "../contracts";
+import {
+  lastPlaySequence,
+  newRoomSequence,
+  phaseExamples,
+  spectatorExamples,
+} from "../fixtures/server-snapshots";
 import { at, tile } from "./rules.fixture";
 import { finish, harness, penultimate } from "./service.fixture";
 
