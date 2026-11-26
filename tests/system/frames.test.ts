@@ -3,15 +3,22 @@ import type { SeatId } from "../../packages/shared/src/contracts/domain";
 import {
   firstDealState,
   lastPlaySequence,
+  leaveExamples,
   lostResume,
+  namedViews,
   phaseExamples,
   spectatorExamples,
 } from "../../packages/shared/src/contracts/fixtures";
-import type { PlayerView } from "../../packages/shared/src/contracts/wire";
+import type {
+  Message,
+  PlayerView,
+} from "../../packages/shared/src/contracts/wire";
+import { checkLeave } from "./abandon-sequence";
 import {
   checkAction,
   checkDeal,
   checkFinal,
+  checkNames,
   checkPublic,
   isPresence,
   judgeFrame,
@@ -313,4 +320,78 @@ test("action phase must follow the remaining hand count", () => {
       { type: "PASS" },
     ),
   ).toThrow("unexpected action phase");
+});
+
+test("frozen name and leave frames pass the probe frame judge", () => {
+  const { lobby, game, spectator, finished, unseated } = leaveExamples;
+  const frames: { recipient: SeatId | null; frame: Message }[] = [
+    namedViews.lobby,
+    namedViews.game,
+    ...game.before,
+    ...game.after,
+    ...lobby.after,
+    ...finished.after,
+    ...spectator.thenLeaves.after,
+    { recipient: spectator.recipient, frame: spectator.after },
+    ...[unseated, lobby.revoked, game.revoked, finished.revoked].map((r) => ({
+      recipient: null,
+      frame: r.reply,
+    })),
+    ...[...lobby.joins, { recipient: 0 as const, ...lobby.rejoin }].flatMap(
+      ({ recipient, replies }) =>
+        replies.map((frame) => ({
+          recipient: frame.type === "SEATED" ? null : recipient,
+          frame,
+        })),
+    ),
+  ];
+  for (const { recipient, frame } of frames)
+    expect(judgeFrame(JSON.stringify(frame), recipient, new Map())).toEqual(
+      frame,
+    );
+});
+test("seat names match only their expectation and skip vacated seats", () => {
+  const view = namedViews.game.frame.view;
+  checkNames(
+    view,
+    new Map([
+      [0, "철수"],
+      [1, undefined],
+      [2, "Bob7"],
+      [3, "ㅋㅋ"],
+      [4, "가나다라마바"],
+    ]),
+  );
+  expect(() => checkNames(view, new Map([[1, "철수"]]))).toThrow(
+    "seat 1 name mismatch",
+  );
+  expect(() => checkNames(view, new Map([[0, undefined]]))).toThrow(
+    "seat 0 name mismatch",
+  );
+  const vacated = leaveExamples.lobby.after[0].frame.view;
+  checkNames(vacated, new Map([[0, "철수"]]));
+});
+test("an active seat's leave matches the frozen abandonment lobby", () => {
+  const { before, after, leaver } = leaveExamples.game;
+  const turn = before[0].frame.view;
+  for (const { frame } of after)
+    expect(checkLeave(turn, frame.view, leaver.seatId)).toEqual(
+      need(
+        frame.view.phase === "LOBBY" ? frame.view.lastGameResult : null,
+        "frozen result",
+      ),
+    );
+  const lobby = after[0].frame.view;
+  const [s0, s1, ...rest] = turn.slots;
+  const renamed: PlayerView = {
+    ...turn,
+    slots: [s0, s1 && { ...s1, name: "영희" }, ...rest],
+  };
+  for (const [label, view, seat] of [
+    ["renamed seat", renamed, leaver.seatId],
+    ["wrong leaver", turn, 1],
+  ] as const)
+    expect(() => checkLeave(view, lobby, seat), label).toThrow(
+      "leave ranking, chips, names or leaver mismatch",
+    );
 });
