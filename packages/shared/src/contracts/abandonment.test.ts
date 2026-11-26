@@ -237,7 +237,7 @@ test("all four see the first active turn, then presence, two automatic passes an
   });
   expect(third.view.deadline).toBe(lobby.serverNow);
   expect(snapshots[snapshots.indexOf(third) + 1]).toEqual(lobby);
-  expect(snapshots[snapshots.indexOf(lobby) + 1]).toEqual(lobby);
+  expect(snapshots[snapshots.indexOf(lobby) + 1]?.revision).toBe(20);
   expect(replay.abandoned.map((f) => f.recipient)).toEqual([1, 2, 3]);
   for (const { frame, recipient } of replay.abandoned) {
     accept(frame, recipient);
@@ -342,23 +342,22 @@ test("revoked resume, replacement join, start and stale commands use the same ro
 });
 
 test("observer sees consecutive revisions and one play/settlement batch per actual winning play, even across restart", () => {
-  const expectedRevisions = Array.from({ length: 26 }, (_, i) => i + 6).flatMap(
-    (r) => (r === 19 || r === 31 ? [r, r] : [r]),
-  );
+  const expectedRevisions = Array.from({ length: 26 }, (_, i) => i + 6);
   expect(snapshots.map((f) => f.revision)).toEqual(expectedRevisions);
+  expect(observed).toHaveLength(28);
   expect(replay.effectBatches).toHaveLength(observed.length);
   let previous: Snapshot | undefined;
   for (const [i, f] of observed.entries()) {
     accept(f, replay.recipient);
     const expected = [];
-    if (f.type === "SNAPSHOT" && f.revision !== previous?.revision) {
+    if (f.type === "SNAPSHOT") {
       const play = f.view.lastPlay;
       if (previous && play && play.turnId !== previous.view.lastPlay?.turnId)
         expected.push({ type: "PLAY", turnId: play.turnId });
       if (f.view.phase === "ROUND_SETTLEMENT")
         expected.push({ type: "SETTLEMENT", round: f.view.round });
       previous = f;
-    } else if (f.type === "SNAPSHOT") expect(previous).toEqual(f);
+    }
     expect<readonly unknown[] | undefined>(replay.effectBatches[i]).toEqual(
       expected,
     );
@@ -369,7 +368,6 @@ test("observer sees consecutive revisions and one play/settlement batch per actu
       .map((f) => [f.revision, f.view.round]),
   ).toEqual([
     [16, 1],
-    [31, 1],
     [31, 1],
   ]);
 });

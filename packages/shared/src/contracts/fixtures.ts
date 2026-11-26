@@ -1206,8 +1206,10 @@ const restartPaid = snap(
   abandonedAt + 11,
 );
 
-// 'observed' is seat 1's receive stream. Other sockets' replies are in the exchanges,
-// positioned by the revision on which the command is sent.
+// observed is the exact sequence the server sends seat 1's connection, every revision once and in order.
+// It includes two ERROR(STALE_TURN) replies to seat 1's own commands in exchanges.stale.
+// A replay must send those commands at the stated revision. Other sockets' replies are in exchanges.
+// Client tests for duplicate or older revisions re-feed a frame themselves, as with lastPlaySequence.
 export const abandonmentRestart = {
   recipient: 1,
   observer: occupants.B,
@@ -1277,7 +1279,6 @@ export const abandonmentRestart = {
     snap(secondRound, 17, epoch + 60008),
     thirdTurn,
     abandonedLobby,
-    abandonedLobby,
     joinedLobby,
     snap(fourStart(replacementOrder, 1), 21, abandonedAt + 2),
     restartActive,
@@ -1292,7 +1293,6 @@ export const abandonmentRestart = {
       true,
     ),
     ...trick(secondFive, finalThree, 15, 27, abandonedAt + 7, true),
-    restartPaid,
     restartPaid,
   ],
   effectBatches: [
@@ -1318,7 +1318,6 @@ export const abandonmentRestart = {
     [],
     [],
     [],
-    [],
     [{ type: "PLAY", turnId: 11 }],
     [],
     [],
@@ -1331,6 +1330,5 @@ export const abandonmentRestart = {
       { type: "PLAY", turnId: 19 },
       { type: "SETTLEMENT", round: 1 },
     ],
-    [],
   ],
 } as const;
