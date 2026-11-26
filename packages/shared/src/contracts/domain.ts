@@ -101,7 +101,8 @@ export type GameState = Readonly<{
   roundLeader: SeatId | null;
   currentTurn: SeatId | null;
   lastPlayedBy: SeatId | null;
-  // Numeric in every phase: 0 in the first ROUND_START, increment when opening each TURN_ACTIVE.
+  // In ROUND_START the server seeds a new game with the room's last issued turnId (0 for its first game).
+  // Opening TURN_ACTIVE increments the id, so the first game opens at 1 and later games never reuse ids.
   // Room projection nulls turnId/deadline outside TURN_ACTIVE, projects settlement, and copies other same-named public fields.
   turnId: number;
   consecutivePasses: number;

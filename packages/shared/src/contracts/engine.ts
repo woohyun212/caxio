@@ -26,8 +26,14 @@ export interface HandRules {
 /** Settle independently of phase. Change only chips, isOut, eliminatedRound, eliminatedEffectiveTiles,
  * activePlayers and lastSettlement; preserve hands and phase. */
 export type Settle = (state: GameState) => GameState;
-/** Competition ranks: ties share a place (1, 1, 3). */
-export type Rank = (state: GameState) => readonly RankingRow[];
+/** Without a leaver, use normal game-over ranking. For abandonment, include every seat in
+ * state.seatOrder (including OUT). Order the others by confirmed chips descending with
+ * competition ranks (1, 1, 3) and display ties in state.seatOrder. Append the leaver with
+ * sole rank N = row count regardless of chips. Ignore isOut, E and elimination round. */
+export type Rank = (
+  state: GameState,
+  leaverSeatId?: SeatId,
+) => readonly RankingRow[];
 /** After settlement, check last round before survivor count. */
 export type IsGameOver = (state: GameState) => false | GameOverReason;
 export interface SettlementRules {

@@ -41,6 +41,9 @@ export const ERROR_TEXT = {
   LEAD_PASS: "선은 패스할 수 없어요.",
   INVALID_MESSAGE: "요청을 읽을 수 없어요.",
 } as const;
+export const ABANDONMENT_NOTICE = "참가자 이탈로 게임이 종료되었습니다";
+export const LEAVER_SEAT_PREFIX = "이탈한 좌석";
+export const LAST_GAME_RANKING_TITLE = "직전 게임 순위";
 export type ErrorCode = keyof typeof ERROR_TEXT;
 export const UNKNOWN_ERROR_TEXT = "요청을 처리하지 못했어요.";
 export function errorText(code: string): string {
@@ -61,6 +64,14 @@ export type PublicSeat = Readonly<{
   chips: number;
   isOut: boolean;
   isConnected: boolean;
+}>;
+export type LastGameRankingRow = RankingRow & { readonly chips: number };
+/** Confirmed chips in the finished game. The server preserves its join order within ties;
+ * the current lobby may have different occupants. The leaver alone occupies the last place. */
+export type LastGameResult = Readonly<{
+  reason: "ABANDONMENT";
+  leaverSeatId: SeatId;
+  ranking: readonly LastGameRankingRow[];
 }>;
 type TableFields = Readonly<{
   slots: Slots<PublicSeat>;
@@ -92,6 +103,8 @@ export type PublicTable = Readonly<
           // Only the lobby carries hostSeatId and canStart; its seated recipient has ownHand: [].
           hostSeatId: SeatId | null;
           canStart: boolean;
+          // Omit in a fresh room and from the next successful start.
+          lastGameResult?: LastGameResult;
         } & IdleClock)
       | ({
           phase: "ROUND_START";
@@ -250,6 +263,37 @@ function ranking(
     seen.add(r.seatId);
   }
   return true;
+}
+function lastGameResult(v: unknown): v is LastGameResult {
+  if (
+    !shape(v, ["reason", "leaverSeatId", "ranking"]) ||
+    v.reason !== "ABANDONMENT" ||
+    !seat(v.leaverSeatId) ||
+    !Array.isArray(v.ranking) ||
+    !integer(v.ranking.length, 3, 5)
+  )
+    return false;
+  const seen = new Set<SeatId>();
+  let previousChips = Infinity;
+  let previousRank = 0;
+  for (const [i, row] of v.ranking.entries()) {
+    if (
+      !shape(row, ["seatId", "rank", "chips"]) ||
+      !seat(row.seatId) ||
+      seen.has(row.seatId) ||
+      !integer(row.chips)
+    )
+      return false;
+    const place = i + 1;
+    if (place === v.ranking.length)
+      return row.seatId === v.leaverSeatId && row.rank === place;
+    if (row.chips > previousChips) return false;
+    if (row.chips !== previousChips) previousRank = place;
+    if (row.rank !== previousRank) return false;
+    previousChips = row.chips;
+    seen.add(row.seatId);
+  }
+  return false;
 }
 function settlement(
   v: unknown,
@@ -422,7 +466,7 @@ function validView(v: unknown, recipient: SeatId): v is PlayerView {
   if (
     !onlyKeys(v, [
       ...fields,
-      ...(lobby ? ["hostSeatId", "canStart"] : []),
+      ...(lobby ? ["hostSeatId", "canStart", "lastGameResult"] : []),
       ...(self.isOut ? [] : ["ownHand"]),
       ...(hasOwnResult ? ["ownSettlement"] : []),
     ])
@@ -464,6 +508,8 @@ function validView(v: unknown, recipient: SeatId): v is PlayerView {
     return false;
   if (lobby)
     return (
+      (!Object.hasOwn(v, "lastGameResult") ||
+        lastGameResult(v.lastGameResult)) &&
       v.hostSeatId === order[0] &&
       v.canStart ===
         (recipient === v.hostSeatId &&

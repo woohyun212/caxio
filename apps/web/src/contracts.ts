@@ -10,6 +10,11 @@ export type ConnectionState =
   | "CONNECTING"
   | "RESTORING"
   | "CONNECTED";
+/** Read lastGameResult from every accepted lobby view, including a first or resumed snapshot.
+ * Only accepted revisions update the model. On game → lobby clear selected and pending PLAY/PASS,
+ * preserve mute and the remaining credential. RESUME_DENIED or ROOM_NOT_FOUND on restore clears
+ * the stored credential and returns to entry. The UI announces abandonment once from a game → lobby
+ * model transition on the same connection; a first/resumed snapshot or duplicate revision is silent. */
 export interface ClientModel {
   readonly connection: ConnectionState;
   readonly seatId: SeatId | null;
@@ -61,6 +66,7 @@ export interface ClientDependencies {
     removeItem(key: string): void;
   };
   monotonicNow(): number;
+  // Abandonment emits no effect. Settlement rounds are per game: the next game’s round-1 settlement sounds once.
   // Called only for new audible events while unmuted; first/resume snapshots establish a silent baseline.
   effects(events: readonly ClientEffect[]): void;
 }

@@ -48,7 +48,7 @@ type Signatures = {
   timeoutAction: [[state: GameState], Action];
   advance: [[state: GameState, rng: Rng], GameState];
   settle: [[state: GameState], GameState];
-  rank: [[state: GameState], readonly RankingRow[]];
+  rank: [[state: GameState, leaverSeatId?: SeatId], readonly RankingRow[]];
   isGameOver: [[state: GameState], false | GameOverReason];
 };
 type Api = {
