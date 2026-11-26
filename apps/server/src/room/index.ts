@@ -1,6 +1,6 @@
 import type { GameState, SeatId } from "@caxio/shared/contracts/domain";
 import {
-  decodeCommand,
+  decodeRequest,
   type ErrorCode,
   isRoomCode,
 } from "@caxio/shared/contracts/wire";
@@ -92,31 +92,16 @@ export const createRoomService: CreateRoomService = (deps) => {
   function expire(room: Room, game: GameState, now: number) {
     if (room.game !== game || room.deadline === null || now < room.deadline)
       return false;
-    const entry = [...room.occupants].find(
-      ([, occupant]) => occupant.id === game.currentTurn,
+    const seat = [...room.occupants.values()].find(
+      (occupant) => occupant.id === game.currentTurn,
     );
-    if (!entry) throw new Error("Timeout without a current occupant");
-    const [join, seat] = entry;
+    if (!seat) throw new Error("Timeout without a current occupant");
     const action = deps.rules.timeoutAction(game);
     if (
       seat.connection === null &&
       seat.disconnectedTurns === ABANDONMENT_TURN_LIMIT - 1
     ) {
-      const ranking = deps.rules.rank(game, seat.id).map(({ seatId, rank }) => {
-        const player = game.players[seatId];
-        if (!player) throw new Error("Ranked seat has no player");
-        return { seatId, rank, chips: player.chips };
-      });
-      cancelTurn(room);
-      room.game = null;
-      room.lastGameResult = {
-        reason: "ABANDONMENT",
-        leaverSeatId: seat.id,
-        ranking,
-      };
-      room.occupants.delete(join);
-      for (const other of room.occupants.values())
-        if (other.connection === null) reserve(room, other, now);
+      abandon(room, game, seat, now);
       broadcast(room, now);
     } else {
       const result = deps.rules.applyTurn(game, seat.id, action, true);
@@ -126,6 +111,47 @@ export const createRoomService: CreateRoomService = (deps) => {
       commit(room, result.state, now);
     }
     return true;
+  }
+  // Return to the lobby: vacate the leaver and every departed seat, reserve the other offline seats.
+  function abandon(room: Room, game: GameState, leaver: Occupant, now: number) {
+    const occupants = [...room.occupants.values()];
+    const ranking = deps.rules.rank(game, leaver.id).map(({ seatId, rank }) => {
+      const player = game.players[seatId];
+      if (!player) throw new Error("Ranked seat has no player");
+      const name = occupants.find((s) => s.id === seatId)?.name;
+      return { seatId, rank, chips: player.chips, ...(name && { name }) };
+    });
+    cancelTurn(room);
+    room.game = null;
+    room.lastGameResult = {
+      reason: "ABANDONMENT",
+      leaverSeatId: leaver.id,
+      ranking,
+    };
+    leaver.left = true;
+    vacate(room);
+    for (const other of room.occupants.values())
+      if (other.connection === null) reserve(room, other, now);
+  }
+  function vacate(room: Room) {
+    for (const [join, occupant] of room.occupants)
+      if (occupant.left) room.occupants.delete(join);
+  }
+  // Unbind a connection; an all-offline room that is not finished starts its disposal clock.
+  function release(
+    connection: RoomConnection,
+    room: Room,
+    seat: Occupant,
+    now: number,
+  ) {
+    bindings.delete(connection);
+    seat.connection = null;
+    if (
+      room.game?.phase !== "GAME_OVER" &&
+      [...room.occupants.values()].every((s) => s.connection === null)
+    )
+      disposeLater(room, now);
+    broadcast(room, now);
   }
   function commit(room: Room, game: GameState, now: number) {
     cancelTurn(room);
@@ -175,12 +201,14 @@ export const createRoomService: CreateRoomService = (deps) => {
     id: SeatId,
     connection: RoomConnection,
     now: number,
+    name: string | undefined,
   ) {
     const seat = {
       id,
       token: deps.newToken(),
       connection: null,
       disconnectedTurns: 0,
+      name,
     };
     room.occupants.set(room.nextJoin++, seat);
     bind(room, seat, connection, now);
@@ -188,7 +216,7 @@ export const createRoomService: CreateRoomService = (deps) => {
   return {
     receive(connection, frame) {
       const now = deps.now();
-      const command = decodeCommand(frame);
+      const command = decodeRequest(frame);
       const error = (code: ErrorCode) => {
         if (code === "ROOM_NOT_FOUND" || code === "RESUME_DENIED")
           lookupMisses.set(connection, (lookupMisses.get(connection) ?? 0) + 1);
@@ -219,7 +247,7 @@ export const createRoomService: CreateRoomService = (deps) => {
             deadline: null,
           };
           rooms.set(code, room);
-          return join(room, 0, connection, now);
+          return join(room, 0, connection, now, command.name);
         }
         case "JOIN_ROOM":
         case "RESUME": {
@@ -228,7 +256,11 @@ export const createRoomService: CreateRoomService = (deps) => {
           if (!room) return error("ROOM_NOT_FOUND");
           const occupants = [...room.occupants.values()];
           if (command.type === "RESUME") {
-            let seat = occupants.find((s) => s.token === command.token);
+            const find = () =>
+              [...room.occupants.values()].find(
+                (s) => !s.left && s.token === command.token,
+              );
+            let seat = find();
             const game = room.game;
             if (
               seat &&
@@ -236,16 +268,14 @@ export const createRoomService: CreateRoomService = (deps) => {
               seat.id === game.currentTurn &&
               expire(room, game, now)
             )
-              seat = [...room.occupants.values()].find(
-                (s) => s.token === command.token,
-              );
+              seat = find();
             if (!seat) return error("RESUME_DENIED");
             return bind(room, seat, connection, now);
           }
           if (room.game) return error("GAME_STARTED");
           const id = seats.find((id) => occupants.every((s) => s.id !== id));
           if (id === undefined) return error("ROOM_FULL");
-          return join(room, id, connection, now);
+          return join(room, id, connection, now, command.name);
         }
         case "START_GAME": {
           if (!bound) return error("NOT_SEATED");
@@ -279,6 +309,18 @@ export const createRoomService: CreateRoomService = (deps) => {
           if (!result.ok) return error(result.code);
           return commit(room, result.state, now);
         }
+        case "LEAVE_ROOM": {
+          if (!bound) return error("NOT_SEATED");
+          const { room, seat } = bound;
+          if (room.game) expire(room, room.game, now);
+          // Leaving applies to the state after any expiry. OUT and finished seats stay in the game offline.
+          const game = room.game;
+          seat.left = true;
+          if (!game) vacate(room);
+          else if (game.phase !== "GAME_OVER" && !game.players[seat.id]?.isOut)
+            abandon(room, game, seat, now);
+          return release(connection, room, seat, now);
+        }
       }
     },
     close(connection) {
@@ -286,15 +328,8 @@ export const createRoomService: CreateRoomService = (deps) => {
       const bound = bindings.get(connection);
       if (!bound) return;
       const { room, seat } = bound;
-      bindings.delete(connection);
-      seat.connection = null;
       if (!room.game) reserve(room, seat, now);
-      if (
-        room.game?.phase !== "GAME_OVER" &&
-        [...room.occupants.values()].every((s) => s.connection === null)
-      )
-        disposeLater(room, now);
-      broadcast(room, now);
+      release(connection, room, seat, now);
     },
   };
 };

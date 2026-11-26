@@ -21,6 +21,9 @@ export interface Occupant {
   token: string;
   disconnectedTurns: number;
   connection: RoomConnection | null;
+  name?: string;
+  // Explicit leave revoked the credential; the seat is vacated when the room next holds a lobby.
+  left?: true;
   cancelReservation?: () => void;
 }
 
@@ -61,6 +64,7 @@ function table(room: Room, recipient: SeatId): PublicTable {
       chips: player?.chips ?? INITIAL_CHIPS,
       isOut: player?.isOut ?? false,
       isConnected: occupant.connection !== null,
+      ...(occupant.name && { name: occupant.name }),
     };
   };
   const slots: Slots<PublicSeat> = [
