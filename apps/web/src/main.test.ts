@@ -787,6 +787,40 @@ test("the link value stays editable on rejection and leaving preserves other add
       expect(html).toMatch(/id="gc-code"[^>]*value="ABCD23"/);
       expect(html).toContain(errorText(code));
     }
+    for (const [link, restore, rejection] of [
+      ["ZZZZZZ", false, "ROOM_NOT_FOUND"],
+      ["abc", false, null],
+      ["ZZZZZZ", { roomCode: "ZZZZZZ", token: "denied" }, "RESUME_DENIED"],
+    ] as const) {
+      url.searchParams.set("room", link);
+      const tab = harness(undefined, restore, undefined, url.search);
+      if (rejection) {
+        tab.socket().dispatchEvent(new Event("open"));
+        tab.socket().receive({ type: "ERROR", code: rejection });
+        tab.session.createRoom();
+      } else tab.session.joinRoom(roomCode);
+      expect(linkedRoom(url.search)).toBe(link.toUpperCase());
+      const bound = tab.socket(rejection ? 1 : 0);
+      bound.dispatchEvent(new Event("open"));
+      const credential = { roomCode, token: "new-seat" };
+      bound.receive({ type: "SEATED", seatId: 0, ...credential });
+      expect(url.href).toBe("https://game.test/?x=1#tab");
+      tab.session.dispose();
+      const reloaded = new Socket();
+      const resumed = startSession(
+        browserSocket(url.origin, () => reloaded),
+        tab.storage,
+        { unlock: mock(), play: mock(), dispose: mock() },
+      );
+      reloaded.dispatchEvent(new Event("open"));
+      expect(reloaded.commands).toEqual([{ type: "RESUME", ...credential }]);
+      expect(resumed.getState().credential).toEqual(credential);
+      expect(tab.storage.getItem("caxio.credential")).toBe(
+        JSON.stringify(credential),
+      );
+      resumed.dispose();
+    }
+    url.searchParams.set("room", roomCode);
     const h = harness(undefined, true, undefined, url.search);
     h.session.leaveRoom?.();
     expect(url.href).toBe("https://game.test/?x=1#tab");

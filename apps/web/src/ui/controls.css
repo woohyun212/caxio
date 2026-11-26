@@ -664,7 +664,7 @@
 .gc-compact .gc-command button {
   min-width: 60px;
 }
-.gc-compact .gc-panel-slot:has([data-panel="menu"], [data-panel="settlement"]) {
+.gc-compact .gc-panel-slot:has([data-panel="menu"]) {
   /* The covered caption and tile rows still size this grid area. */
   position: absolute;
   inset: 0;
@@ -672,9 +672,7 @@
 .gc-compact .gc-panel[data-panel="settlement"] {
   display: grid;
   grid-template-columns: 1fr auto;
-  grid-template-rows: 44px 1fr;
   align-items: center;
-  height: 100%;
   box-shadow: none;
 }
 .gc-compact [data-panel="settlement"] > .gc-actions {
@@ -711,17 +709,11 @@
   }
   .gc-compact .gc-panel[data-panel="settlement"] {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 24px 1fr 44px;
     padding: 0;
   }
   .gc-compact [data-panel="settlement"] > .gc-actions {
-    grid-area: 3 / 1;
+    grid-area: auto;
     justify-content: center;
-  }
-  .gc-compact [data-panel="settlement"] > div:not(.gc-actions) {
-    grid-row: 2;
-    font-size: inherit;
-    line-height: inherit;
   }
 }
 .gc-compact .gc-panel {
@@ -877,6 +869,11 @@
 }
 .gc-room-settings {
   grid-area: settings;
+}
+.gc-room-settings span {
+  display: inline-block;
+}
+.gc-compact :is(.gc-message, .gc-self) {
   word-break: keep-all;
 }
 .gc-board[data-own-turn="true"] .gc-status {
@@ -917,5 +914,15 @@
 @media (orientation: landscape) and (min-width: 660px) {
   .gc-compact .gc-room-code > label {
     flex-basis: auto;
+  }
+  .gc-compact .gc-lobby-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .gc-compact .gc-lobby-actions > button {
+    margin-block: 0;
   }
 }

@@ -58,6 +58,13 @@ export function browserSocket(
   };
 }
 
+function removeRoomLink() {
+  if (linkedRoom() === null) return;
+  const url = new URL(location.href);
+  url.searchParams.delete("room");
+  history.replaceState(history.state, "", url);
+}
+
 export function startSession(
   openSocket: ClientDependencies["openSocket"],
   storage: ClientDependencies["storage"],
@@ -72,6 +79,15 @@ export function startSession(
     effects: (events) => audio.play(events),
   });
   session.subscribe(rememberSettlement());
+  session.subscribe(({ credential, seatId }, before) => {
+    if (
+      seatId !== null &&
+      credential &&
+      credential !== before.credential &&
+      linkedRoom() !== credential.roomCode
+    )
+      removeRoomLink();
+  });
   if (room === null || room === session.getState().credential?.roomCode)
     session.resume();
   else {
@@ -85,11 +101,7 @@ export function startSession(
     ...session,
     leaveRoom() {
       session.leaveRoom?.();
-      if (globalThis.location && linkedRoom() !== null) {
-        const url = new URL(location.href);
-        url.searchParams.delete("room");
-        history.replaceState(history.state, "", url);
-      }
+      removeRoomLink();
     },
   };
 }

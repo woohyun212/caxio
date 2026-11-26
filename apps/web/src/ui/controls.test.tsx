@@ -36,6 +36,7 @@ import {
   type PlayerView,
   UNKNOWN_ERROR_TEXT,
 } from "@caxio/shared/contracts/wire";
+import * as React from "react";
 import { Children, isValidElement, type ReactNode, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ClientModel, GameControlsProps } from "../contracts";
@@ -43,7 +44,7 @@ import { atlases, fontFiles, tileRect } from "../visual/assets";
 import { handOrder, layout } from "../visual/layout";
 import { frame, palette } from "../visual/tokens";
 import { GameControls } from "./index";
-import { Action, EndScreen, Entry, Panel } from "./screens";
+import { Action, EndScreen, Entry, Lobby, Panel } from "./screens";
 import {
   abandonmentNotice,
   automaticSettlement,
@@ -924,7 +925,7 @@ test("compact lobby seats and past ranking inherit the 24px lobby type", () => {
 });
 test("compact lobby stacks the start reason and button and offsets Galmuri ink on every text row", () => {
   expect(styleRule(".gc-wide .gc-lobby-actions")).toContain("display: flex");
-  expect(css).not.toMatch(
+  expect(css.split("@media (orientation: landscape)")[0]).not.toMatch(
     /(?:^|\n)\s*(?:\.gc-compact )?\.gc-lobby-actions\s*\{[^}]*display:\s*(?:flex|grid)/,
   );
   const tightRows = css.match(
@@ -1363,31 +1364,17 @@ test("a returned seat announces only an unseen automatic action from this docume
   }
 });
 
-test("compact settlement pages fill the natural center and visit every public row", () => {
+test("compact settlement displays every rank together and keeps the menu overlay", () => {
   const view = lastPlaySequence.continuing[3].view;
-  const texts = [
-    "<u>1위</u> 1번 0장 +3칩 67칩",
+  const html = render(props(view, {}, 1));
+  for (const row of [
+    "<u>1위</u> 1번(나) 0장 +3칩 67칩",
     "2위 2번 1장 0칩 64칩",
     "3위 3번 2장 −3칩 61칩",
-  ];
-  for (const [page, row] of texts.entries()) {
-    const html = renderToStaticMarkup(
-      <Panel
-        compact
-        kind="settlement"
-        view={view}
-        page={page}
-        setPage={noop}
-        open={noop}
-        close={noop}
-      />,
-    );
+  ])
     expect(html).toContain(row);
-    for (const other of texts.filter((t) => t !== row))
-      expect(html).not.toContain(other);
-    expect(html).toMatch(/이전.*다음.*닫기/);
-  }
-  expect(render(props(view, {}, 1))).not.toContain(texts[1] ?? "");
+  expect(html).not.toMatch(/>이전<|>다음</);
+  expect(html).toContain(">닫기<");
   expect(styleRule(".gc-compact .gc-table")).toMatch(
     /^ {2}min-height: 80px;$/m,
   );
@@ -1395,16 +1382,12 @@ test("compact settlement pages fill the natural center and visit every public ro
     /\.gc-compact \.gc-table,\s*\.gc-compact \.gc-hand\s*\{[^}]*\bflex-wrap: wrap;/,
   );
   const overlay = styleRule(
-    '.gc-compact .gc-panel-slot:has([data-panel="menu"], [data-panel="settlement"])',
+    '.gc-compact .gc-panel-slot:has([data-panel="menu"])',
   );
-  expect(overlay).toMatch(/^ {2}position: absolute;$/m);
-  expect(overlay).toMatch(/^ {2}inset: 0;$/m);
-  expect(overlay).not.toMatch(/(?:^|\n)\s*(?:min-|max-)?height:/);
+  expect(overlay).toContain("position: absolute;");
+  expect(overlay).toContain("inset: 0;");
   expect(css).not.toMatch(
     /\.gc-compact \.gc-center\s*\{[^}]*\b(?:height|overflow):/,
-  );
-  expect(styleRule('.gc-compact .gc-panel[data-panel="settlement"]')).toContain(
-    "grid-template-rows: 44px 1fr",
   );
 });
 
@@ -1761,10 +1744,10 @@ test("creation selects have labeled options and defaults, both lobby roles read 
   );
   for (const seatId of [0, 1] as const) {
     expect(render(props(configuredRoom.lobby.view, { seatId }))).toContain(
-      "턴 제한시간 45초 · 최대 3라운드",
+      "<span>턴 제한시간 45초</span> · <span>최대 3라운드</span>",
     );
     expect(render(props(phaseExamples[0].view, { seatId }))).toContain(
-      "턴 제한시간 30초 · 최대 5라운드",
+      "<span>턴 제한시간 30초</span> · <span>최대 5라운드</span>",
     );
   }
 });
@@ -1852,4 +1835,99 @@ test("entry selection sends configured values only with creation", () => {
     ["별", { turnLimitSeconds: 90, maxRounds: 7 }],
   ]);
   expect(joinRoom.mock.calls).toEqual([[roomCode, "별"]]);
+});
+
+test("own turn inverts the band and urgent clock, outlines the hand, and compact seats isolate the count", () => {
+  const band = styleRule('.gc-board[data-own-turn="true"] .gc-status');
+  const clock = styleRule(
+    '.gc-board[data-own-turn="true"] .gc-urgent .gc-time,\n.gc-compact .gc-count',
+  );
+  expect(band).toContain("color: var(--gc-paper)");
+  expect(band).toContain("background: var(--gc-ink)");
+  expect(clock).toContain("color: var(--gc-ink)");
+  expect(clock).toContain("background: var(--gc-paper)");
+  const hand = styleRule('.gc-board[data-own-turn="true"] .gc-hand::after');
+  expect(hand).toContain("solid var(--gc-ink)");
+  expect(hand).toContain("inset: var(--gc-hand-top, 0px) 0 0");
+  expect(css).toMatch(/\.gc-compact \.gc-count \{[^{}]*white-space: nowrap;/);
+});
+
+test("controls update the tab title only for an active turn owned by this seat", () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "document");
+  const doc = { title: "" };
+  // Static rendering skips layout effects. Run the same callbacks against this tab.
+  const effects = spyOn(React, "useLayoutEffect").mockImplementation(
+    (effect) => {
+      effect();
+    },
+  );
+  try {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: doc,
+    });
+    render(props(lead));
+    expect(doc.title).toBe("▶ 내 차례 · caxio");
+    render(props(lead, { seatId: 1 }));
+    expect(doc.title).toBe("caxio");
+    render(props(lead));
+    render(props(dealExamples[0].view));
+    expect(doc.title).toBe("caxio");
+    render(props(null));
+    expect(doc.title).toBe("caxio");
+  } finally {
+    effects.mockRestore();
+    if (original) Object.defineProperty(globalThis, "document", original);
+    else Reflect.deleteProperty(globalThis, "document");
+  }
+});
+
+test("lobby copy denial renders the full selectable invite link and reason", async () => {
+  const location = Object.getOwnPropertyDescriptor(globalThis, "location");
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  const view = configuredRoom.lobby.view;
+  if (view.phase !== "LOBBY") throw Error("Expected lobby fixture");
+  const options = {
+    model: props(view).model,
+    view,
+    startGame: noop,
+    message: "",
+  };
+  let link = "";
+  const state = spyOn(React, "useState").mockImplementation(() => [
+    link,
+    (next) => {
+      link = String(next);
+    },
+  ]);
+  try {
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: new URL("https://game.test/path"),
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          throw Error("denied");
+        },
+      },
+    });
+    const lobby = Lobby(options);
+    expect(renderToStaticMarkup(lobby)).not.toContain(
+      "링크를 복사할 수 없어요.",
+    );
+    await findAction(lobby, "링크 복사").onClick();
+    const html = renderToStaticMarkup(Lobby(options));
+    expect(html).toContain("링크를 복사할 수 없어요.");
+    expect(html).toMatch(
+      /<textarea[^>]*aria-label="초대 링크"[^>]*readOnly=""[^>]*>https:\/\/game\.test\/\?room=ABCD23<\/textarea>/i,
+    );
+  } finally {
+    state.mockRestore();
+    if (location) Object.defineProperty(globalThis, "location", location);
+    else Reflect.deleteProperty(globalThis, "location");
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
 });

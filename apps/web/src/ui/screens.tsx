@@ -244,8 +244,11 @@ export function Lobby({
         <Action onClick={() => leaveRoom?.()}>나가기</Action>
       </div>
       <div className="gc-room-settings">
-        턴 제한시간 {view.turnLimitSeconds ?? DEFAULT_TURN_LIMIT_SECONDS}초 ·
-        최대 {view.maxRounds}라운드
+        <span>
+          턴 제한시간 {view.turnLimitSeconds ?? DEFAULT_TURN_LIMIT_SECONDS}초
+        </span>
+        {" · "}
+        <span>최대 {view.maxRounds}라운드</span>
       </div>
       {manualLink && (
         <div role="status">
@@ -341,7 +344,7 @@ export function Panel({
 }) {
   const s = view.lastSettlement,
     counts = settlementCounts(view);
-  const rowsPerPage = compact ? 1 : 3;
+  const rowsPerPage = compact && s ? s.results.length : 3;
   const pages =
     kind === "rules"
       ? 3
