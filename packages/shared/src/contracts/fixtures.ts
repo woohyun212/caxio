@@ -905,6 +905,17 @@ export const abandonmentLobbyExamples = [
   { recipient: 4, frame: snap(resultLobby([...replacementOrder, 4], 4), 25) },
 ] as const;
 
+export const nonHostAbandonmentLobby = {
+  recipient: 2,
+  frame: snap(
+    {
+      ...lobby([2, 0, 1], 2),
+      lastGameResult: abandonmentResults.previouslyOut.result,
+    },
+    21,
+  ),
+} as const;
+
 // Independent reconnect after the offline presence example; SEATED restores the same credential.
 export const abandonmentLobbyResume = {
   recipient: 2,

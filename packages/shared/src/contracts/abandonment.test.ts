@@ -5,6 +5,7 @@ import {
   abandonmentLobbyResume,
   abandonmentResults,
   invalidAbandonmentExamples,
+  nonHostAbandonmentLobby,
   phaseExamples,
   abandonmentRestart as replay,
 } from "./fixtures";
@@ -170,6 +171,28 @@ test("lobby presence, expiry, host succession, slot reuse and resume preserve th
   expect(restored.view).toMatchObject({
     lastGameResult: abandonmentResults.afterRoundOne.result,
   });
+});
+
+test("a non-host departure keeps the original host and restores the OUT seat to the lobby", () => {
+  const { recipient, frame } = nonHostAbandonmentLobby;
+  const { seatOrder, result } = abandonmentResults.previouslyOut;
+  accept(frame, recipient);
+  expect(recipient).toBe(2);
+  expect(result.leaverSeatId).toBe(3);
+  const view = frame.view;
+  if (view.phase !== "LOBBY") throw Error("expected lobby");
+  expect(view.hostSeatId).toBe(seatOrder[0]);
+  expect(view.hostSeatId).toBe(recipient);
+  expect(view.seatOrder).toEqual([2, 0, 1]);
+  expect(view.canStart).toBe(true);
+  const occupant = {
+    chips: 64,
+    isOut: false,
+    isConnected: true,
+    remainingTileCount: 0,
+  };
+  expect(view.slots).toEqual([occupant, occupant, occupant, null, null]);
+  expect(view.lastGameResult).toEqual(result);
 });
 
 for (const { violation, frame, recipient } of invalidAbandonmentExamples) {
