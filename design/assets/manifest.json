@@ -6,14 +6,14 @@
       "width": 420,
       "height": 186,
       "bytes": 1173,
-      "sha256": "ca2f06608a3cf7e2a144fdf8fb35ca90b17c9b752284f61b21e57830fb0ba64c",
+      "sha256": "8d63f85177e299d095185da03901420c6e1278844d5f48427912d81d14f6e108",
       "allowedColors": [
         "#152B26",
         "#385747",
         "#829769",
         "#DCE7B1",
         "#2A78B8",
-        "#2C540C",
+        "#3F7A0A",
         "#B26E00",
         "#A12B1C"
       ],
@@ -25,13 +25,13 @@
       "width": 360,
       "height": 160,
       "bytes": 955,
-      "sha256": "70df47c04ab3f2fc465f081faa22a23017f68ad32c9f081ae1feebb17ad1d93e",
+      "sha256": "43b7d932a8c14480b8882ce43dcd5471fc112de40b73451d991d8da692ac4a79",
       "allowedColors": [
         "#152B26",
         "#385747",
         "#DCE7B1",
         "#2A78B8",
-        "#2C540C",
+        "#3F7A0A",
         "#B26E00",
         "#A12B1C"
       ],

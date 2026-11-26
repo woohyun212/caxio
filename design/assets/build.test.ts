@@ -148,7 +148,7 @@ function withQ2Star(png: Buffer, grey: boolean) {
     if (copy.toString("ascii", pos + 4, pos + 8) === "PLTE") {
       const entry = pos + 8 + 6 * 3;
       expect([...copy.subarray(entry, entry + 3)]).toEqual(
-        grey ? [0x4a, 0x4a, 0x4a] : [...palette.star],
+        grey ? [0x6c, 0x6c, 0x6c] : [...palette.star],
       );
       copy.set(grey ? [0x43, 0x43, 0x43] : [0x57, 0x30, 0x7a], entry);
       copy.writeUInt32BE(
