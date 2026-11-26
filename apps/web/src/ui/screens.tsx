@@ -1,15 +1,28 @@
 import {
+  DEFAULT_MAX_ROUNDS,
+  DEFAULT_TURN_LIMIT_SECONDS,
+  isMaxRounds,
+  isTurnLimitSeconds,
+  MAX_ROUNDS,
+  type MaxRounds,
+  TURN_LIMIT_SECONDS,
+  type TurnLimitSeconds,
+} from "@caxio/shared/contracts/settings";
+import {
   ABANDONMENT_NOTICE,
   LAST_GAME_RANKING_TITLE,
   LEAVER_SEAT_PREFIX,
   type PlayerView,
 } from "@caxio/shared/contracts/wire";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { GameControlsProps } from "../contracts";
 import { seatLabel } from "../visual/layout";
+import { settlementCounts } from "./settlement";
 import {
   activate,
+  copyRoomLink,
   entryName,
+  linkedRoom,
   nameHint,
   outage,
   type PanelKind,
@@ -53,7 +66,11 @@ export function Entry({
 }: Pick<GameControlsProps, "model" | "createRoom" | "joinRoom"> & {
   message: string;
 }) {
-  const [code, setCode] = useState(""),
+  const [code, setCode] = useState(() => linkedRoom() ?? ""),
+    [turnLimitSeconds, setSeconds] = useState<TurnLimitSeconds>(
+      DEFAULT_TURN_LIMIT_SECONDS,
+    ),
+    [maxRounds, setRounds] = useState<MaxRounds>(DEFAULT_MAX_ROUNDS),
     [name, setName] = useState(recallName),
     [invalid, setInvalid] = useState<"" | "name" | "code">("");
   const busy =
@@ -90,6 +107,40 @@ export function Entry({
           spellCheck={false}
         />
       </div>
+      <div className="gc-settings">
+        <label>
+          턴 제한시간{" "}
+          <select
+            value={turnLimitSeconds}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              if (isTurnLimitSeconds(value)) setSeconds(value);
+            }}
+          >
+            {TURN_LIMIT_SECONDS.map((n) => (
+              <option key={n} value={n}>
+                {n}초
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          최대 라운드{" "}
+          <select
+            value={maxRounds}
+            onChange={(e) => {
+              const value = Number(e.target.value);
+              if (isMaxRounds(value)) setRounds(value);
+            }}
+          >
+            {MAX_ROUNDS.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <Action
         className="gc-primary"
         reason={busy}
@@ -98,7 +149,7 @@ export function Entry({
           const n = named();
           if (n === false) return;
           rememberName(n);
-          createRoom(n);
+          createRoom(n, { turnLimitSeconds, maxRounds });
         }}
       >
         방 만들기
@@ -159,7 +210,7 @@ export function Lobby({
   leaveRoom?: () => void;
   message: string;
 }) {
-  const code = useRef<HTMLInputElement>(null);
+  const [manualLink, setManualLink] = useState("");
   const offline = view.seatOrder.find((id) => !view.slots[id]?.isConnected);
   const host = view.hostSeatId === model.seatId,
     last = view.lastGameResult;
@@ -178,7 +229,6 @@ export function Lobby({
         <label>
           방 코드{" "}
           <input
-            ref={code}
             value={model.credential?.roomCode ?? ""}
             readOnly
             onFocus={(e) => e.target.select()}
@@ -186,18 +236,33 @@ export function Lobby({
         </label>
         <Action
           onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(code.current?.value ?? "");
-            } catch {
-              code.current?.focus();
-              code.current?.select();
-            }
+            setManualLink(await copyRoomLink(model.credential?.roomCode ?? ""));
           }}
         >
-          복사
+          링크 복사
         </Action>
         <Action onClick={() => leaveRoom?.()}>나가기</Action>
       </div>
+      <div className="gc-room-settings">
+        <span>
+          턴 제한시간 {view.turnLimitSeconds ?? DEFAULT_TURN_LIMIT_SECONDS}초
+        </span>
+        {" · "}
+        <span>최대 {view.maxRounds}라운드</span>
+      </div>
+      {manualLink && (
+        <div role="status">
+          링크를 복사할 수 없어요.{" "}
+          <textarea
+            className="gc-manual-link"
+            aria-label="초대 링크"
+            rows={2}
+            readOnly
+            value={manualLink}
+            onFocus={(e) => e.target.select()}
+          />
+        </div>
+      )}
       <ul className="gc-lobby-seats" aria-label="현재 좌석">
         {view.slots.map((s, id) => (
           <li key={seatLabel(id)}>
@@ -214,6 +279,7 @@ export function Lobby({
         </div>
         {host && (
           <Action
+            className="gc-primary"
             onClick={startGame}
             reason={reason}
             describedBy="gc-start-reason"
@@ -257,6 +323,7 @@ const rules = [
 ];
 export function Panel({
   compact = false,
+  seatId,
   kind,
   page,
   view,
@@ -266,6 +333,7 @@ export function Panel({
   leave = () => {},
 }: {
   compact?: boolean;
+  seatId?: number | null;
   kind: PanelKind;
   page: number;
   view: PlayerView;
@@ -276,14 +344,13 @@ export function Panel({
   leave?: () => void;
 }) {
   const s = view.lastSettlement,
-    own =
-      view.ownSettlement?.round === s?.round ? view.ownSettlement : undefined;
-  const rowsPerPage = compact ? 1 : 3;
+    counts = settlementCounts(view);
+  const rowsPerPage = compact && s ? s.results.length : 3;
   const pages =
     kind === "rules"
       ? 3
       : kind === "settlement" && s
-        ? Math.ceil((s.results.length + (compact && own ? 1 : 0)) / rowsPerPage)
+        ? Math.ceil(s.results.length / rowsPerPage)
         : 1;
   // Resizing to wide can put the compact page past the last wide page.
   const current = Math.min(page, pages - 1);
@@ -317,27 +384,24 @@ export function Panel({
       ) : (
         s && (
           <>
-            <strong>R{s.round} 정산</strong>
+            <strong>
+              R{s.round}/{view.maxRounds} 정산
+            </strong>
             {s.results
+              .toSorted((a, b) => a.rank - b.rank)
               .slice(current * rowsPerPage, (current + 1) * rowsPerPage)
               .map((r) => (
                 <div key={r.seatId}>
-                  {r.rank}위 {seatName(view, r.seatId)}{" "}
-                  {r.chipChange > 0 ? "+" : r.chipChange < 0 ? "−" : ""}
-                  {Math.abs(r.chipChange)}칩 → {view.slots[r.seatId]?.chips}칩{" "}
-                  {view.slots[r.seatId]?.isOut
-                    ? view.phase === "GAME_OVER"
-                      ? "탈락"
-                      : "탈락 · 다음 판 관전"
+                  {r.rank === 1 ? <u>1위</u> : `${r.rank}위`}{" "}
+                  {seatName(view, r.seatId)}
+                  {seatId === r.seatId ? "(나)" : ""}{" "}
+                  {counts?.[r.seatId] !== undefined
+                    ? `${counts[r.seatId]}장 `
                     : ""}
+                  {r.chipChange > 0 ? "+" : r.chipChange < 0 ? "−" : ""}
+                  {Math.abs(r.chipChange)}칩 {view.slots[r.seatId]?.chips}칩
                 </div>
               ))}
-            {own && (!compact || current === s.results.length) && (
-              <div>
-                남은 {own.remaining}장 × {2 ** own.twos}배(2가 {own.twos}장) ={" "}
-                {own.effective}
-              </div>
-            )}
           </>
         )
       )}
@@ -377,14 +441,14 @@ export function EndScreen({
   view,
   seatId,
   reason,
-  createRoom,
+  openEntry,
   leave,
   openSettlement,
 }: {
   view: PlayerView;
   seatId: GameControlsProps["model"]["seatId"];
   reason: string;
-  createRoom: (name?: string) => void;
+  openEntry: () => void;
   leave: () => void;
   openSettlement: (button: HTMLButtonElement) => void;
 }) {
@@ -407,10 +471,7 @@ export function EndScreen({
         >
           직전 정산
         </button>
-        <Action
-          className="gc-primary"
-          onClick={() => createRoom(entryName(recallName()) || undefined)}
-        >
+        <Action className="gc-primary" onClick={openEntry}>
           새 방 만들기
         </Action>
         <Action onClick={leave}>나가기</Action>

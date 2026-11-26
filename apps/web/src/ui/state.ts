@@ -83,6 +83,18 @@ export function rememberName(name: string | undefined) {
     else globalThis.localStorage.removeItem(nameKey);
   } catch {}
 }
+export async function copyRoomLink(code: string) {
+  const link = `${location.origin}/?room=${code}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    return "";
+  } catch {
+    return link;
+  }
+}
+export function linkedRoom(search = globalThis.location?.search ?? "") {
+  return new URLSearchParams(search).get("room")?.trim().toUpperCase() ?? null;
+}
 export function enterCode(input: string, join: (code: string) => void) {
   const code = input.trim().toUpperCase();
   if (!isRoomCode(code)) return false;
@@ -141,7 +153,14 @@ export function locks(
   const play = common || (!result.ok ? describe(result) : "");
   const pass =
     common || (!model.view?.tableHand ? "선은 패스할 수 없어요" : "");
-  return { hand, play, pass, standing: play || pass };
+  return {
+    hand,
+    play,
+    pass,
+    standing:
+      common ||
+      `내 차례 · ${!result.ok && result.reason !== "EMPTY" ? describe(result) : model.view?.tableHand ? "높게 내거나 패스하세요" : "먼저 내세요"}`,
+  };
 }
 export function activate(reason: string, action: () => void) {
   if (!reason) action();
@@ -177,8 +196,8 @@ export function passedSeats(view: PlayerView) {
 export function dealText(view: PlayerView, compact = false) {
   if (view.currentTurn === null) return "";
   if (compact)
-    return `R${view.round} 1~${view.maxNumber} ${view.slots[view.currentTurn]?.remainingTileCount}장씩 선 ${seatName(view, view.currentTurn)} 구름3`;
-  return `R${view.round} · 숫자 1~${view.maxNumber} · ${view.slots[view.currentTurn]?.remainingTileCount}장씩 · 선 ${seatName(view, view.currentTurn)}(구름 3)`;
+    return `R${view.round}/${view.maxRounds} 1~${view.maxNumber} ${view.slots[view.currentTurn]?.remainingTileCount}장씩 선 ${seatName(view, view.currentTurn)} 구름3`;
+  return `R${view.round}/${view.maxRounds} · 숫자 1~${view.maxNumber} · ${view.slots[view.currentTurn]?.remainingTileCount}장씩 · 선 ${seatName(view, view.currentTurn)}(구름 3)`;
 }
 function timeoutNotice(type: "PLAY" | "PASS") {
   return type === "PLAY"

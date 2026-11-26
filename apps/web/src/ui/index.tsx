@@ -153,8 +153,14 @@ function Board({
     model.seatId === null
       ? ""
       : `${seatLabel(model.seatId)} ${self?.chips ?? 0}칩`;
+  const ownTurn =
+    view.phase === "TURN_ACTIVE" && view.currentTurn === model.seatId;
   const publicStatus = out
-    ? "탈락 · 관전 중"
+    ? end
+      ? "탈락"
+      : view.phase === "ROUND_SETTLEMENT"
+        ? "탈락 · 다음 판 관전"
+        : "탈락 · 관전 중"
     : model.seatId !== null && passedSeats(view).has(model.seatId)
       ? "패스"
       : "";
@@ -185,6 +191,7 @@ function Board({
   return (
     <fieldset
       aria-label="대국"
+      data-own-turn={ownTurn}
       className={`gc-board ${opaque ? "gc-opaque" : "gc-canvas"}`}
       ref={root}
       onClickCapture={() => setNotice("")}
@@ -222,7 +229,9 @@ function Board({
         <span role="timer" className="gc-time">
           {time}
         </span>
-        <span className="gc-round">R{view.round}</span>
+        <span className="gc-round">
+          R{view.round}/{view.maxRounds}
+        </span>
         <div className="gc-actions">
           <button
             type="button"
@@ -362,7 +371,7 @@ function Board({
           view={view}
           seatId={model.seatId}
           reason={turn}
-          createRoom={props.createRoom}
+          openEntry={leave}
           leave={leave}
           openSettlement={(button) => {
             caller.current = button;
@@ -395,6 +404,7 @@ function Board({
         >
           <Panel
             compact={!wide}
+            seatId={model.seatId}
             kind={panel}
             page={page}
             view={view}
@@ -421,6 +431,11 @@ const colors = Object.fromEntries(
 export const GameControls: GameControlsComponent<ReactElement> = (props) => {
   const { view, errorCode } = props.model,
     wide = props.k >= frame.wideMinScale;
+  const ownTurn =
+    view?.phase === "TURN_ACTIVE" && view.currentTurn === props.model.seatId;
+  useLayoutEffect(() => {
+    document.title = ownTurn ? "▶ 내 차례 · caxio" : "caxio";
+  }, [ownTurn]);
   const [previous, setPrevious] = useState(props.model);
   const [announcement, setAnnouncement] = useState("");
   if (previous !== props.model) {

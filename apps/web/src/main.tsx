@@ -19,6 +19,8 @@ import type {
 } from "./contracts";
 import { createAudioEffects } from "./table/audio";
 import { GameControls } from "./ui";
+import { rememberSettlement } from "./ui/settlement";
+import { enterCode, entryName, linkedRoom, recallName } from "./ui/state";
 import { fitScale, layout, type Mode } from "./visual/layout";
 import { frame, palette } from "./visual/tokens";
 
@@ -56,11 +58,19 @@ export function browserSocket(
   };
 }
 
+function removeRoomLink() {
+  if (linkedRoom() === null) return;
+  const url = new URL(location.href);
+  url.searchParams.delete("room");
+  history.replaceState(history.state, "", url);
+}
+
 export function startSession(
   openSocket: ClientDependencies["openSocket"],
   storage: ClientDependencies["storage"],
   audio: AudioEffects,
   create = createClientSession,
+  room = linkedRoom(),
 ) {
   const session = create({
     openSocket,
@@ -68,8 +78,32 @@ export function startSession(
     monotonicNow: () => performance.now(),
     effects: (events) => audio.play(events),
   });
-  session.resume();
-  return session;
+  session.subscribe(rememberSettlement());
+  session.subscribe(({ credential, seatId }, before) => {
+    if (
+      seatId !== null &&
+      credential &&
+      credential !== before.credential &&
+      linkedRoom() !== credential.roomCode
+    )
+      removeRoomLink();
+  });
+  if (room === null || room === session.getState().credential?.roomCode)
+    session.resume();
+  else {
+    // An explicit link replaces this tab's previous destination before any recovery listener runs.
+    if (session.getState().credential) session.leaveRoom?.();
+    enterCode(room, (code) =>
+      session.joinRoom(code, entryName(recallName()) || undefined),
+    );
+  }
+  return {
+    ...session,
+    leaveRoom() {
+      session.leaveRoom?.();
+      removeRoomLink();
+    },
+  };
 }
 
 type SceneModule = { GameTable: ComponentType<TableProps> };
