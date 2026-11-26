@@ -28,6 +28,14 @@ export interface RoomService {
   // Below the limit, count a disconnected own-turn expiry when its automatic action succeeds.
   // At the limit, skip applyTurn, settlement and advance. Return the seat and credential and send
   // exactly one lobby SNAPSHOT of the same new revision to each remaining connection.
+  // Decode frames with decodeRequest. CREATE_ROOM/JOIN_ROOM store their optional name on the new seat; every
+  // PublicSeat of that seat carries it until the seat is vacated (also while disconnected), RESUME keeps it, and
+  // abandonment ranking rows copy each named seat's name. LEAVE_ROOM requires a bound seat (NOT_SEATED), handles an
+  // expired current turn once like RESUME, then sends the leaver nothing, unbinds the connection and revokes the
+  // credential. In the lobby it vacates the seat and broadcasts. From a seat that is not OUT in a running game it
+  // ends the game by abandonment like the limit above, with that seat as leaver and the current confirmed chips.
+  // From an OUT seat in a running game, or in GAME_OVER, the seat stays in the game disconnected and broadcasts;
+  // it is vacated, never reserved, when the room returns to the lobby.
   receive(connection: RoomConnection, frame: unknown): void;
   // The HTTP adapter reports each closed connection exactly once.
   close(connection: RoomConnection): void;

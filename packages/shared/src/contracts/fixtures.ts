@@ -1343,3 +1343,242 @@ export const abandonmentRestart = {
     ],
   ],
 } as const;
+
+// Names and explicit leaving (docs/lexio-rules.md §5–6). Clients trim entry input; the wire never does.
+export const playerNameExamples = {
+  valid: [
+    "가",
+    "철수",
+    "가나다라마바",
+    "ㅋㅋ",
+    "Bob7",
+    "ABCDEF",
+    "123456",
+    "김A1",
+  ],
+  normalize: [" 철수 ", "\t철수　"],
+  invalid: [
+    "",
+    "가나다라마바사",
+    "ABCDEFG",
+    " 철수",
+    "철수 ",
+    "철 수",
+    "Bob!",
+    "名字",
+    "Ａ",
+    "é",
+    "😀",
+    "가",
+    "ㆍ",
+    "철수\n",
+    null,
+    7,
+    {},
+    [],
+  ],
+};
+// Seat 1 stays unnamed and shows seatLabel(1). Seat 4 holds the widest legal name (72 px in Galmuri11 at 12 px).
+const seatNames: Slots<string> = ["철수", null, "Bob7", "ㅋㅋ", "가나다라마바"];
+function named<V extends { slots: Slots<PublicSeat> }>(view: V): V {
+  const at = (id: SeatId) => {
+    const s = view.slots[id],
+      name = seatNames[id];
+    return s && name ? { ...s, name } : s;
+  };
+  return { ...view, slots: [at(0), at(1), at(2), at(3), at(4)] };
+}
+const fivePlay = {
+  ...start,
+  maxNumber: 15,
+  seatOrder: [0, 1, 2, 3, 4],
+  activePlayers: [0, 1, 2, 3, 4],
+  phase: "TURN_ACTIVE",
+  currentTurn: 4,
+  turnId: 5,
+  deadline: epoch + 30010,
+  slots: [slot(11), slot(11), slot(11), slot(11), slot(12)],
+  ownHand: deck.slice(12, 23),
+  tableHand: [tile(9, 1)],
+  lastPlay: { turnId: 4, seatId: 3, tiles: [tile(9, 1)] },
+  lastAction: { turnId: 4, seatId: 3, type: "PLAY", automatic: false },
+} as const;
+export const namedViews = {
+  lobby: { recipient: 0, frame: snap(named(lobby([0, 1, 2, 3, 4], 0)), 5) },
+  game: { recipient: 1, frame: snap(named(fivePlay), 10) },
+} as const;
+
+const leave = { type: "LEAVE_ROOM" } as const;
+const leftResult = {
+  reason: "ABANDONMENT",
+  leaverSeatId: 2,
+  ranking: [
+    { seatId: 0, rank: 1, chips: 64, name: "철수" },
+    { seatId: 1, rank: 1, chips: 64 },
+    { seatId: 2, rank: 3, chips: 64, name: "Bob7" },
+  ],
+} as const satisfies LastGameResult;
+const spectating = spectatorExamples.restored.view;
+const watched = {
+  ...spectating,
+  ownHand: initialHands[1],
+  ownSettlement: a4Settlement.details[1],
+} as const;
+const departed = {
+  ...watched,
+  slots: [slot(12, 131), slot(12), slot(12, 61), slot(0, 0, false, true), null],
+} as const;
+const spectatorResult = {
+  reason: "ABANDONMENT",
+  leaverSeatId: 0,
+  ranking: [
+    { seatId: 1, rank: 1, chips: 64 },
+    { seatId: 2, rank: 2, chips: 61 },
+    { seatId: 3, rank: 3, chips: 0 },
+    { seatId: 0, rank: 4, chips: 131 },
+  ],
+} as const satisfies LastGameResult;
+// The leaver never receives a frame. A seated LEAVE_ROOM answers nothing; others see one new revision.
+export const leaveExamples = {
+  command: leave,
+  unseated: { command: leave, reply: error("NOT_SEATED") },
+  // The host leaves the lobby: seat 0 frees at once, seat 1 becomes host, and the same connection may join again.
+  lobby: {
+    joins: [
+      {
+        recipient: 0,
+        command: { type: "CREATE_ROOM", name: "철수" },
+        replies: [occupants.A, snap(named(lobby([0], 0)), 1)],
+      },
+      {
+        recipient: 1,
+        command: { type: "JOIN_ROOM", roomCode },
+        replies: [occupants.B, snap(named(lobby([0, 1], 1)), 2)],
+      },
+      {
+        recipient: 2,
+        command: { type: "JOIN_ROOM", roomCode, name: "Bob7" },
+        replies: [occupants.C, snap(named(lobby(order, 2)), 3)],
+      },
+    ],
+    leaver: occupants.A,
+    after: [
+      { recipient: 1, frame: snap(named(lobby([1, 2], 1)), 4) },
+      { recipient: 2, frame: snap(named(lobby([1, 2], 2)), 4) },
+    ],
+    revoked: {
+      command: { type: "RESUME", roomCode, token: occupants.A.token },
+      reply: error("RESUME_DENIED"),
+    },
+    rejoin: {
+      command: { type: "JOIN_ROOM", roomCode, name: "철수" },
+      replies: [seated(0, "A2"), snap(named(lobby([1, 2, 0], 0)), 5)],
+    },
+  },
+  // An active seat leaves a running game: abandonment at once with its current chips, the others in the lobby.
+  game: {
+    before: [
+      { recipient: 0, frame: snap(named(active), 5) },
+      {
+        recipient: 1,
+        frame: snap(named({ ...active, ownHand: initialHands[1] }), 5),
+      },
+      {
+        recipient: 2,
+        frame: snap(named({ ...active, ownHand: initialHands[2] }), 5),
+      },
+    ],
+    leaver: occupants.C,
+    now: epoch + 10,
+    after: [
+      {
+        recipient: 0,
+        frame: snap(
+          { ...named(lobby([0, 1], 0)), lastGameResult: leftResult },
+          6,
+          epoch + 10,
+        ),
+      },
+      {
+        recipient: 1,
+        frame: snap(
+          { ...named(lobby([0, 1], 1)), lastGameResult: leftResult },
+          6,
+          epoch + 10,
+        ),
+      },
+    ],
+    revoked: {
+      command: { type: "RESUME", roomCode, token: occupants.C.token },
+      reply: error("RESUME_DENIED"),
+    },
+  },
+  // An OUT spectator leaves: the game continues with that seat disconnected. When a later
+  // abandonment returns the room to the lobby, the departed seat is vacated instead of reserved.
+  spectator: {
+    recipient: 1,
+    before: snap(watched, 74),
+    leaver: occupants.D,
+    after: snap(departed, 75, epoch + 80),
+    revoked: {
+      command: { type: "RESUME", roomCode, token: occupants.D.token },
+      reply: error("RESUME_DENIED"),
+    },
+    thenLeaves: {
+      leaver: occupants.A,
+      after: [
+        {
+          recipient: 1,
+          frame: snap(
+            { ...lobby([1, 2], 1), lastGameResult: spectatorResult },
+            76,
+            epoch + 90,
+          ),
+        },
+        {
+          recipient: 2,
+          frame: snap(
+            { ...lobby([1, 2], 2), lastGameResult: spectatorResult },
+            76,
+            epoch + 90,
+          ),
+        },
+      ],
+    },
+  },
+  // Leaving GAME_OVER only disconnects the seat for the others and revokes its credential.
+  finished: {
+    before: snap(ended, 65),
+    leaver: occupants.B,
+    after: [
+      {
+        recipient: 0,
+        frame: snap(
+          {
+            ...ended,
+            slots: [slot(0, 67), slot(1, 64, false), slot(2, 61), null, null],
+          },
+          66,
+          epoch + 70,
+        ),
+      },
+      {
+        recipient: 2,
+        frame: snap(
+          {
+            ...ended,
+            slots: [slot(0, 67), slot(1, 64, false), slot(2, 61), null, null],
+            ownHand: settledState.players[2].hand,
+            ownSettlement: a4Settlement.details[2],
+          },
+          66,
+          epoch + 70,
+        ),
+      },
+    ],
+    revoked: {
+      command: { type: "RESUME", roomCode, token: occupants.B.token },
+      reply: error("RESUME_DENIED"),
+    },
+  },
+} as const;

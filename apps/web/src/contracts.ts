@@ -35,14 +35,21 @@ export interface ClientModel {
   } | null;
 }
 export interface ClientActions {
-  createRoom(): void;
-  joinRoom(roomCode: string): void;
+  // name is the trimmed entry input when isPlayerName accepts it; an empty input omits it (seatLabel display).
+  // Each request puts it on CREATE_ROOM/JOIN_ROOM as given. The UI remembers it in localStorage caxio.name.
+  createRoom(name?: string): void;
+  joinRoom(roomCode: string, name?: string): void;
   resume(): void;
   startGame(): void;
   toggleTile(tile: Tile): void;
   play(): void;
   pass(): void;
   setMuted(muted: boolean): void;
+  // Optional only so the pre-leave session still compiles; the session that ships the leave button implements it.
+  // With a bound seat on an open socket it sends LEAVE_ROOM, then always closes the socket, removes the stored
+  // credential and resets the model to entry (DISCONNECTED; no seat, view, revision, time anchor, selection,
+  // pending or error), keeping muted. The UI confirms first only while its own seat is active in a running game.
+  leaveRoom?(): void;
 }
 export interface ClientSession extends ClientActions {
   getState(): ClientModel;
@@ -195,14 +202,15 @@ export type ClientContractCheck = Assert<
         } | null;
       },
       {
-        createRoom(): void;
-        joinRoom(roomCode: string): void;
+        createRoom(name?: string): void;
+        joinRoom(roomCode: string, name?: string): void;
         resume(): void;
         startGame(): void;
         toggleTile(tile: Tile): void;
         play(): void;
         pass(): void;
         setMuted(muted: boolean): void;
+        leaveRoom?(): void;
       },
       {
         openSocket(events: {

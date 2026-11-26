@@ -44,6 +44,13 @@ export const ERROR_TEXT = {
 export const ABANDONMENT_NOTICE = "참가자 이탈로 게임이 종료되었습니다";
 export const LEAVER_SEAT_PREFIX = "이탈한 좌석";
 export const LAST_GAME_RANKING_TITLE = "직전 게임 순위";
+/** Optional display name: 1–6 Hangul syllables, Hangul compatibility jamo, ASCII letters or digits.
+ * The wire never trims; the client trims before sending. Duplicate names in a room are allowed. */
+export const PLAYER_NAME_MAX_LENGTH = 6;
+const PLAYER_NAME = /^[가-힣ㄱ-ㅣA-Za-z0-9]{1,6}$/u;
+export function isPlayerName(value: unknown): value is string {
+  return typeof value === "string" && PLAYER_NAME.test(value);
+}
 export type ErrorCode = keyof typeof ERROR_TEXT;
 export const UNKNOWN_ERROR_TEXT = "요청을 처리하지 못했어요.";
 export function errorText(code: string): string {
@@ -53,19 +60,32 @@ function isErrorCode(value: unknown): value is ErrorCode {
   return typeof value === "string" && Object.hasOwn(ERROR_TEXT, value);
 }
 export type Credential = Readonly<{ roomCode: string; token: string }>;
+// Omit name for an unnamed seat. The seat keeps it until it is vacated; RESUME keeps the stored name.
+type Naming = { name?: string };
 export type Command =
-  | { type: "CREATE_ROOM" }
-  | { type: "JOIN_ROOM"; roomCode: string }
+  | ({ type: "CREATE_ROOM" } & Naming)
+  | ({ type: "JOIN_ROOM"; roomCode: string } & Naming)
   | ({ type: "RESUME" } & Credential)
   | { type: "START_GAME" }
   | (Action & { turnId: number });
+/** Explicit leave (docs/lexio-rules.md §5). A seated connection gets no reply; the server unbinds it and
+ * revokes its credential, so the same connection may CREATE_ROOM or JOIN_ROOM next. Unbound: NOT_SEATED. */
+export type LeaveRoom = { type: "LEAVE_ROOM" };
+/** Everything a client may send. Command stays the pre-leave set so callers that narrow it keep compiling. */
+export type Request = Command | LeaveRoom;
 export type PublicSeat = Readonly<{
   remainingTileCount: number;
   chips: number;
   isOut: boolean;
   isConnected: boolean;
+  // Present only when the occupant set a name; clients then show it instead of seatLabel(seatId).
+  name?: string;
 }>;
-export type LastGameRankingRow = RankingRow & { readonly chips: number };
+// name is the seat's name when the game ended, omitted for an unnamed seat.
+export type LastGameRankingRow = RankingRow & {
+  readonly chips: number;
+  readonly name?: string;
+};
 /** Confirmed chips in the finished game. The server preserves its join order within ties;
  * the current lobby may have different occupants. The leaver alone occupies the last place. */
 export type LastGameResult = Readonly<{
@@ -199,14 +219,23 @@ function read(frame: unknown): unknown {
 function token(v: unknown): v is string {
   return typeof v === "string" && v.length > 0;
 }
-function command(v: unknown): v is Command {
+function named(v: Record<string, unknown>): boolean {
+  return !Object.hasOwn(v, "name") || isPlayerName(v.name);
+}
+function request(v: unknown): v is Request {
   if (!record(v)) return false;
   switch (v.type) {
     case "CREATE_ROOM":
+      return onlyKeys(v, ["type", "name"]) && named(v);
     case "START_GAME":
+    case "LEAVE_ROOM":
       return onlyKeys(v, ["type"]);
     case "JOIN_ROOM":
-      return onlyKeys(v, ["type", "roomCode"]) && isRoomCode(v.roomCode);
+      return (
+        onlyKeys(v, ["type", "roomCode", "name"]) &&
+        isRoomCode(v.roomCode) &&
+        named(v)
+      );
     case "RESUME":
       return (
         onlyKeys(v, ["type", "roomCode", "token"]) &&
@@ -226,15 +255,23 @@ function command(v: unknown): v is Command {
       return false;
   }
 }
-/** Text JSON with exact keys and 0–13 tiles. Ownership, duplicates, count and hand strength belong to the rules. */
-export function decodeCommand(frame: unknown): Command | "INVALID_MESSAGE" {
+/** Text JSON with exact keys, canonical names and 0–13 tiles. Ownership, duplicates, count and hand strength belong to the rules. */
+export function decodeRequest(frame: unknown): Request | "INVALID_MESSAGE" {
   const v = read(frame);
-  return command(v) ? v : "INVALID_MESSAGE";
+  return request(v) ? v : "INVALID_MESSAGE";
+}
+/** decodeRequest without LEAVE_ROOM, which it reports as INVALID_MESSAGE. The server decodes with decodeRequest. */
+export function decodeCommand(frame: unknown): Command | "INVALID_MESSAGE" {
+  const r = decodeRequest(frame);
+  return r !== "INVALID_MESSAGE" && r.type === "LEAVE_ROOM"
+    ? "INVALID_MESSAGE"
+    : r;
 }
 
 function publicSeat(v: unknown): v is PublicSeat {
   return (
-    shape(v, ["remainingTileCount", "chips", "isOut", "isConnected"]) &&
+    shape(v, ["remainingTileCount", "chips", "isOut", "isConnected", "name"]) &&
+    named(v) &&
     integer(v.remainingTileCount, 0, 13) &&
     integer(v.chips) &&
     typeof v.isOut === "boolean" &&
@@ -278,7 +315,8 @@ function lastGameResult(v: unknown): v is LastGameResult {
   let previousRank = 0;
   for (const [i, row] of v.ranking.entries()) {
     if (
-      !shape(row, ["seatId", "rank", "chips"]) ||
+      !shape(row, ["seatId", "rank", "chips", "name"]) ||
+      !named(row) ||
       !seat(row.seatId) ||
       seen.has(row.seatId) ||
       !integer(row.chips)
