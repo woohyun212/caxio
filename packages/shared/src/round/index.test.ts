@@ -16,6 +16,7 @@ import {
   firstDealState,
   settledState,
 } from "../contracts/fixtures";
+import * as realSettlement from "../settlement";
 import { createRoundRules } from "./index";
 
 const tile = (number: number, suit: Suit = 0): Tile => ({ number, suit });
@@ -623,3 +624,46 @@ test("Advance is idle outside start and settlement, and timeout requires an acti
       expect(() => rules.timeoutAction(state)).toThrow();
   }
 });
+
+test("A21 seeded round opens above the previous game and increases after play", () => {
+  const start = rules.startRound([0, 1, 2], identityShuffle);
+  expect(start.turnId).toBe(0);
+  const active = rules.advance({ ...start, turnId: 17 }, noShuffle);
+  expect(active.turnId).toBe(18);
+  expect(accept(active, rules.timeoutAction(active)).turnId).toBe(19);
+});
+
+for (const reason of ["LAST_ROUND", "FEWER_THAN_THREE"] as const) {
+  test(`A18 connected last single settles once and ends by ${reason}`, () => {
+    const settle = mock(realSettlement.settle);
+    const engine = createRoundRules(hands, { ...realSettlement, settle });
+    const cloudThree = tile(3);
+    const state: GameState = {
+      ...firstDealState,
+      phase: "TURN_ACTIVE",
+      turnId: 7,
+      round: reason === "LAST_ROUND" ? 5 : 1,
+      players: [
+        { ...firstDealState.players[0], hand: [cloudThree] },
+        {
+          ...firstDealState.players[1],
+          chips: reason === "FEWER_THAN_THREE" ? 1 : 64,
+          hand: [tile(4)],
+        },
+        { ...firstDealState.players[2], hand: [tile(5)] },
+        null,
+        null,
+      ],
+    };
+    expect(engine.timeoutAction({ ...state, tableHand: [tile(4)] })).toEqual(
+      pass,
+    );
+    const action = engine.timeoutAction(state);
+    expect(action).toEqual(play(cloudThree));
+    const paid = accept(state, action, false, engine);
+    expect(settle).toHaveBeenCalledTimes(1);
+    expect(paid.phase).toBe("ROUND_SETTLEMENT");
+    expect(realSettlement.isGameOver(paid)).toBe(reason);
+    expect(engine.advance(paid, noShuffle).phase).toBe("GAME_OVER");
+  });
+}

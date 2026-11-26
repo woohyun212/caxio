@@ -5,6 +5,7 @@ import {
   isRoomCode,
 } from "@caxio/shared/contracts/wire";
 import {
+  ABANDONMENT_TURN_LIMIT,
   type CreateRoomService,
   DEFAULT_TURN_LIMIT_MS,
   ROOM_DISPOSAL_MS,
@@ -72,28 +73,68 @@ export const createRoomService: CreateRoomService = (deps) => {
       rooms.delete(room.code);
     });
   }
-  function automatic(room: Room, game: GameState, now: number) {
-    if (game.currentTurn === null)
-      throw new Error("Timeout without a current seat");
-    const result = deps.rules.applyTurn(
-      game,
-      game.currentTurn,
-      deps.rules.timeoutAction(game),
-      true,
+  function reserve(room: Room, seat: Occupant, now: number) {
+    seat.cancelReservation = scheduleAt(
+      now + SEAT_RESERVATION_MS,
+      now,
+      (time) => {
+        for (const [join, occupant] of room.occupants)
+          if (occupant === seat) room.occupants.delete(join);
+        broadcast(room, time);
+      },
     );
-    if (!result.ok)
-      throw new Error(`Engine rejected timeout action: ${result.code}`);
-    commit(room, result.state, now);
   }
-  function commit(room: Room, game: GameState, now: number) {
+  function cancelTurn(room: Room) {
     room.cancelTurn?.();
     delete room.cancelTurn;
     room.deadline = null;
+  }
+  function expire(room: Room, game: GameState, now: number) {
+    if (room.game !== game || room.deadline === null || now < room.deadline)
+      return false;
+    const entry = [...room.occupants].find(
+      ([, occupant]) => occupant.id === game.currentTurn,
+    );
+    if (!entry) throw new Error("Timeout without a current occupant");
+    const [join, seat] = entry;
+    const action = deps.rules.timeoutAction(game);
+    if (
+      seat.connection === null &&
+      seat.disconnectedTurns === ABANDONMENT_TURN_LIMIT - 1
+    ) {
+      const ranking = deps.rules.rank(game, seat.id).map(({ seatId, rank }) => {
+        const player = game.players[seatId];
+        if (!player) throw new Error("Ranked seat has no player");
+        return { seatId, rank, chips: player.chips };
+      });
+      cancelTurn(room);
+      room.game = null;
+      room.lastGameResult = {
+        reason: "ABANDONMENT",
+        leaverSeatId: seat.id,
+        ranking,
+      };
+      room.occupants.delete(join);
+      for (const other of room.occupants.values())
+        if (other.connection === null) reserve(room, other, now);
+      broadcast(room, now);
+    } else {
+      const result = deps.rules.applyTurn(game, seat.id, action, true);
+      if (!result.ok)
+        throw new Error(`Engine rejected timeout action: ${result.code}`);
+      if (seat.connection === null) seat.disconnectedTurns++;
+      commit(room, result.state, now);
+    }
+    return true;
+  }
+  function commit(room: Room, game: GameState, now: number) {
+    cancelTurn(room);
     room.game = game;
     if (game.phase === "TURN_ACTIVE") {
+      room.lastTurnId = game.turnId;
       room.deadline = now + limit;
       room.cancelTurn = scheduleAt(room.deadline, now, (time) =>
-        automatic(room, game, time),
+        expire(room, game, time),
       );
     } else if (game.phase === "GAME_OVER") disposeLater(room, now);
     broadcast(room, now);
@@ -117,6 +158,7 @@ export const createRoomService: CreateRoomService = (deps) => {
       room.cancelDisposal?.();
       delete room.cancelDisposal;
     }
+    seat.disconnectedTurns = 0;
     seat.connection = connection;
     bindings.set(connection, { room, seat });
     deps.send(connection, {
@@ -134,7 +176,12 @@ export const createRoomService: CreateRoomService = (deps) => {
     connection: RoomConnection,
     now: number,
   ) {
-    const seat = { id, token: deps.newToken(), connection: null };
+    const seat = {
+      id,
+      token: deps.newToken(),
+      connection: null,
+      disconnectedTurns: 0,
+    };
     room.occupants.set(room.nextJoin++, seat);
     bind(room, seat, connection, now);
   }
@@ -166,6 +213,7 @@ export const createRoomService: CreateRoomService = (deps) => {
             code,
             occupants: new Map(),
             nextJoin: 0,
+            lastTurnId: 0,
             revision: 0,
             game: null,
             deadline: null,
@@ -180,7 +228,17 @@ export const createRoomService: CreateRoomService = (deps) => {
           if (!room) return error("ROOM_NOT_FOUND");
           const occupants = [...room.occupants.values()];
           if (command.type === "RESUME") {
-            const seat = occupants.find((s) => s.token === command.token);
+            let seat = occupants.find((s) => s.token === command.token);
+            const game = room.game;
+            if (
+              seat &&
+              game?.phase === "TURN_ACTIVE" &&
+              seat.id === game.currentTurn &&
+              expire(room, game, now)
+            )
+              seat = [...room.occupants.values()].find(
+                (s) => s.token === command.token,
+              );
             if (!seat) return error("RESUME_DENIED");
             return bind(room, seat, connection, now);
           }
@@ -196,7 +254,11 @@ export const createRoomService: CreateRoomService = (deps) => {
           const order = [...room.occupants.values()].map((s) => s.id);
           if (order[0] !== seat.id) return error("NOT_HOST");
           if (!ready(room)) return error("NOT_READY");
-          return commit(room, deps.rules.startRound(order, deps.dealRng), now);
+          const game = deps.rules.startRound(order, deps.dealRng);
+          for (const occupant of room.occupants.values())
+            occupant.disconnectedTurns = 0;
+          delete room.lastGameResult;
+          return commit(room, { ...game, turnId: room.lastTurnId }, now);
         }
         case "PLAY":
         case "PASS": {
@@ -206,10 +268,7 @@ export const createRoomService: CreateRoomService = (deps) => {
           if (game?.phase !== "TURN_ACTIVE" || room.deadline === null)
             return error("INVALID_PHASE");
           if (command.turnId !== game.turnId) return error("STALE_TURN");
-          if (now >= room.deadline) {
-            automatic(room, game, now);
-            return error("TIME_EXPIRED");
-          }
+          if (expire(room, game, now)) return error("TIME_EXPIRED");
           const result = deps.rules.applyTurn(
             game,
             seat.id,
@@ -229,17 +288,7 @@ export const createRoomService: CreateRoomService = (deps) => {
       const { room, seat } = bound;
       bindings.delete(connection);
       seat.connection = null;
-      if (!room.game) {
-        seat.cancelReservation = scheduleAt(
-          now + SEAT_RESERVATION_MS,
-          now,
-          (time) => {
-            for (const [number, occupant] of room.occupants)
-              if (occupant === seat) room.occupants.delete(number);
-            broadcast(room, time);
-          },
-        );
-      }
+      if (!room.game) reserve(room, seat, now);
       if (
         room.game?.phase !== "GAME_OVER" &&
         [...room.occupants.values()].every((s) => s.connection === null)

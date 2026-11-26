@@ -124,7 +124,7 @@ test("turn validation returns fixture errors with no transition or revision", ()
   h.reject("B", { type: "PASS", turnId: 999 }, "STALE_TURN");
   expect(h.latest()).toEqual(deadlines.stale.after);
   expect(h.calls.attempts).toBe(7);
-  h.resume("retry", "B");
+  h.resume("retry", "C");
   expect(h.latest("retry").revision).toBe(c.after.revision);
   const tail = harness();
   tail.start();

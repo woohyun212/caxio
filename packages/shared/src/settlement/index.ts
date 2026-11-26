@@ -71,7 +71,22 @@ export const settle: Settle = (state) => {
   };
 };
 
-export const rank: Rank = (state) => {
+export const rank: Rank = (state, leaverSeatId) => {
+  if (leaverSeatId !== undefined) {
+    const others = state.seatOrder
+      .filter((id) => id !== leaverSeatId)
+      .map((seatId) => ({ seatId, chips: playerAt(state, seatId).chips }))
+      .sort((a, b) => b.chips - a.chips);
+    let place = 0;
+    return [
+      ...others.map(({ seatId, chips }, i) => {
+        if (others[i - 1]?.chips !== chips) place = i + 1;
+        return { seatId, rank: place };
+      }),
+      { seatId: leaverSeatId, rank: state.seatOrder.length },
+    ];
+  }
+
   const rows = state.seatOrder.map((seatId) => {
     const player = playerAt(state, seatId);
     const { isOut } = player;
