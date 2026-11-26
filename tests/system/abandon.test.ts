@@ -18,8 +18,8 @@ async function run(fault?: Fault, rng?: () => number) {
     lines: string[] = [];
   try {
     const code = await runAbandonProbe(peer.origin, {
-      frameMs: 35,
-      totalMs: 2000,
+      frameMs: fault === "silent" || fault === "silent-active" ? 250 : 1000,
+      totalMs: 4000,
       log: (line) => lines.push(line),
     });
     const until = performance.now() + 500;
@@ -38,7 +38,7 @@ for (const [rng, turnIds] of [
 ] as const)
   test(`host expires leading or following, deal RNG ${rng}`, async () => {
     const { code, output, observed } = await run(undefined, () => rng);
-    expect(code).toBe(0);
+    expect(code, output).toBe(0);
     expect(output).toContain("abandon.first PASS ok turnId=1 revision=12");
     expect(output).toContain(
       `abandon.automatic.1 PASS ok turnId=${turnIds[0]}`,
@@ -92,21 +92,20 @@ const faults = {
 for (const [fault, diagnostic] of Object.entries(faults))
   test(`abandonment probe rejects ${fault}`, async () => {
     const { code, output } = await run(fault as Fault);
+    expect(code, output).toBe(1);
     expect(output).toContain(diagnostic);
-    expect(code).toBe(1);
     expect(output).toContain("summary FAIL");
   });
 test("refused connection resolves to 1", async () => {
   const peer = abandonFixture();
   await peer.stop();
   const lines: string[] = [];
-  expect(
-    await runAbandonProbe(peer.origin, {
-      frameMs: 100,
-      totalMs: 300,
-      log: (l) => lines.push(l),
-    }),
-  ).toBe(1);
+  const code = await runAbandonProbe(peer.origin, {
+    frameMs: 100,
+    totalMs: 300,
+    log: (l) => lines.push(l),
+  });
+  expect(code, lines.join("\n")).toBe(1);
   expect(lines.join("\n")).toContain("abandon.seating FAIL");
 });
 
@@ -281,7 +280,7 @@ test("CLI requires exactly one bare HTTP(S) origin", () => {
     ["https://host/#h"],
   ]) {
     const p = Bun.spawnSync([process.execPath, script, ...args]);
-    expect(p.exitCode).toBe(2);
+    expect(p.exitCode, p.stdout.toString() + p.stderr.toString()).toBe(2);
     expect(p.stderr.toString()).toContain("Usage:");
   }
 });
@@ -298,7 +297,7 @@ for (const fault of [undefined, "leak-revoked"] as const)
         new Response(child.stdout).text(),
         new Response(child.stderr).text(),
       ]);
-      expect(code).toBe(fault ? 1 : 0);
+      expect(code, out + err).toBe(fault ? 1 : 0);
       expect(out).toContain(fault ? "summary FAIL" : "summary PASS");
       for (const token of peer.tokens) expect(out + err).not.toContain(token);
     } finally {

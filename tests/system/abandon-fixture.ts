@@ -223,6 +223,32 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
     stage = "abandoned";
     broadcast();
   }
+  // Only disconnected turns race a clock in this fixture.
+  function scheduleExpiry(g: GameState) {
+    const actor = need(g.currentTurn, "missing actor");
+    if (bound.has(actor)) return;
+    function expire() {
+      if (stopped || state !== g || bound.size === 0 || bound.has(actor))
+        return;
+      if (Date.now() < deadline) {
+        timer = setTimeout(expire, deadline - Date.now());
+        return;
+      }
+      if (actor === 0) {
+        misses++;
+        if (fault === "silent-active") return;
+        if (
+          misses === (fault === "early-count" ? 2 : 3) &&
+          fault !== "third-action"
+        )
+          return end();
+      }
+      const r = rules.applyTurn(g, actor, rules.timeoutAction(g), true);
+      if (r.ok) commit(r.state);
+    }
+    clearTimeout(timer);
+    timer = setTimeout(expire, Math.max(0, deadline - Date.now()));
+  }
   function commit(g: GameState) {
     clearTimeout(timer);
     state = g;
@@ -234,30 +260,7 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
     deadline = Date.now() + limit;
     maxId = g.turnId;
     broadcast();
-    function expire() {
-      if (stopped || state !== g || bound.size === 0) return;
-      if (Date.now() < deadline) {
-        timer = setTimeout(expire, deadline - Date.now());
-        return;
-      }
-      if (g.currentTurn === 0 && !bound.has(0)) {
-        misses++;
-        if (fault === "silent-active") return;
-        if (
-          misses === (fault === "early-count" ? 2 : 3) &&
-          fault !== "third-action"
-        )
-          return end();
-      }
-      const r = rules.applyTurn(
-        g,
-        need(g.currentTurn, "missing actor"),
-        rules.timeoutAction(g),
-        true,
-      );
-      if (r.ok) commit(r.state);
-    }
-    timer = setTimeout(expire, limit);
+    scheduleExpiry(g);
   }
   const server = Bun.serve({
     port: 0,
@@ -283,6 +286,7 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
         stage = "presence";
         if (abandoned && fault === "drop-presence") result = undefined;
         broadcast();
+        if (state?.currentTurn === id) scheduleExpiry(state);
       },
       message(ws, raw) {
         const cmd = decodeCommand(raw);
