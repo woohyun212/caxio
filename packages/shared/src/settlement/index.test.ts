@@ -9,6 +9,7 @@ import type {
 } from "../contracts/domain";
 import {
   a4Settlement,
+  abandonmentResults,
   gameOverExamples,
   gameOverState,
   settledState,
@@ -360,3 +361,25 @@ test("missing settlement details leave equal-chip survivors tied", () => {
     expected,
   );
 });
+
+for (const [name, specimen] of Object.entries(abandonmentResults)) {
+  test(`A19 abandonment ranking matches ${name} despite settlement tie breakers`, () => {
+    const { seatOrder, result } = specimen;
+    const players: [...Slots<PlayerState>] = [null, null, null, null, null];
+    for (const { seatId, chips } of result.ranking) {
+      players[seatId] = {
+        ...player(1, chips),
+        isOut: chips === 0,
+        eliminatedRound: chips === 0 ? 1 : null,
+        eliminatedEffectiveTiles: chips === 0 ? 64 : null,
+      };
+    }
+    const input = {
+      ...state(players, [...seatOrder]),
+      lastSettlement: a4Settlement,
+    };
+    expect(rank(input, result.leaverSeatId)).toEqual(
+      result.ranking.map(({ seatId, rank }) => ({ seatId, rank })),
+    );
+  });
+}
