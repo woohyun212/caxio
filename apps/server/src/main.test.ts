@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { rules } from "@caxio/shared";
 import type { Action, GameState, SeatId } from "@caxio/shared/contracts/domain";
 import {
+  abandonmentRestart,
   deadlines,
   epoch,
   lostResume,
@@ -25,6 +26,7 @@ import {
   WS_PATH,
 } from "@caxio/shared/contracts/wire";
 import { DEFAULT_TURN_LIMIT_MS } from "./contracts";
+import { abandonmentShuffle } from "./fixtures/abandonment-shuffle";
 import actions from "./fixtures/four-player-actions.json";
 import { makeRandom, seed } from "./fixtures/four-player-seed";
 import { startGameServer } from "./main";
@@ -684,7 +686,9 @@ async function withFailedTurnTimer(
       },
       async (table) => {
         await table.lobby(3);
-        const before = need((await table.start())[0]);
+        const opening = await table.start();
+        const before = need(opening[0]);
+        const observer = before.view.currentTurn === 0 ? 1 : 0;
         fake.time = need(before.view.deadline);
         expect(fake.timers).toHaveLength(1);
         fireWithClockFault();
@@ -696,8 +700,8 @@ async function withFailedTurnTimer(
         await Promise.all(
           table.seats.map((c) => c.reject("?", "INVALID_MESSAGE")),
         );
-        expect((await table.replace(0)).frame).toEqual({
-          ...before,
+        expect((await table.replace(observer)).frame).toEqual({
+          ...need(opening[observer]),
           serverNow: fake.time,
         });
         await check(table, before, fake, fireWithClockFault);
@@ -939,3 +943,98 @@ test.each(["source", "bundle"] as const)(
     }
   },
 );
+
+test("A17–A22 real sockets observe abandonment, credential return and same-room restart", async () => {
+  const fake = clock();
+  await atTable(
+    {
+      now: () => fake.time,
+      schedule: fake.schedule,
+      random: abandonmentShuffle(),
+    },
+    async (table) => {
+      const replay = abandonmentRestart;
+      const observed: readonly Message[] = replay.observed;
+      const snapshots = observed.filter(
+        (m): m is Snapshot => m.type === "SNAPSHOT",
+      );
+      await table.lobby(4);
+      expect(await table.start()).toEqual(
+        replay.firstActive.map(({ frame }) => frame),
+      );
+      const host = need(table.seats[0]),
+        old = need(host.credential);
+      const peers = table.seats.slice(1);
+      for (const frame of snapshots.filter(
+        (f) => f.revision >= 7 && f.revision <= 19,
+      )) {
+        fake.time = frame.serverNow;
+        if (frame.revision === 7) host.ws.close();
+        else if (frame.revision === 19 || frame.view.lastAction?.automatic)
+          need(fake.callbacks.at(-1))();
+        else if (frame.view.lastAction) {
+          const { type, turnId, seatId } = frame.view.lastAction;
+          need(table.seats[seatId]).send(
+            type === "PASS"
+              ? { type, turnId }
+              : { type, turnId, tiles: need(frame.view.lastPlay).tiles },
+          );
+        }
+        const frames = await Promise.all(peers.map((c) => c.snapshot()));
+        expect(frames[0]).toEqual(frame);
+        if (frame.revision === 19)
+          expect(frames).toEqual(replay.abandoned.map((f) => f.frame));
+      }
+      const revoked = await table.open();
+      await revoked.reject(
+        {
+          ...replay.exchanges.revoked.command,
+          roomCode: old.roomCode,
+          token: old.token,
+        },
+        "RESUME_DENIED",
+      );
+      const replacement = await table.open();
+      fake.time++;
+      const joined = await replacement.bind({
+        type: "JOIN_ROOM",
+        roomCode: old.roomCode,
+      });
+      expect(joined).toEqual(replay.exchanges.joined.replies[1]);
+      expect(replacement.credential).toMatchObject({
+        roomCode: old.roomCode,
+        seatId: 0,
+      });
+      expect(replacement.credential?.token).not.toBe(old.token);
+      const afterJoin = await Promise.all(peers.map((c) => c.snapshot()));
+      table.seats[0] = replacement;
+      await replacement.reject(
+        replay.exchanges.rejectedStart.command,
+        "NOT_HOST",
+      );
+      expect((await table.replace(2)).frame).toEqual(need(afterJoin[1]));
+      expect((await table.replace(0)).frame).toEqual(
+        replay.exchanges.rejectedStart.after,
+      );
+      fake.time++;
+      need(table.seats[1]).send(replay.exchanges.acceptedStart.command);
+      expect(await table.snapshots()).toEqual(
+        replay.restartDeal.map((f) => f.frame),
+      );
+      const restarted = await table.snapshots();
+      expect(restarted[1]).toEqual(replay.exchanges.acceptedStart.replies[1]);
+      for (const f of restarted) {
+        expect(f.view).not.toHaveProperty("lastGameResult");
+        expect(f.view.turnId).toBe(11);
+      }
+      for (const exchange of replay.exchanges.stale)
+        await need(table.seats[exchange.recipient]).reject(
+          exchange.command,
+          exchange.reply.code,
+        );
+      await Promise.all(
+        table.seats.map((c) => c.reject("?", "INVALID_MESSAGE")),
+      );
+    },
+  );
+});

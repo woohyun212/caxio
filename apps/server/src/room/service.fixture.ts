@@ -16,7 +16,11 @@ import type { RoomConnection } from "../contracts";
 import { createRoomService } from "./index";
 import { at, rulesFixture, tile } from "./rules.fixture";
 
-export function harness(maxRounds = 5, turnLimitMs?: number) {
+export function harness(
+  maxRounds = 5,
+  turnLimitMs?: number,
+  dealRng = () => 0.25,
+) {
   const clock = { time: epoch, reads: 0 };
   const codes = [roomCode, "WXYZ89"];
   const tokens = [
@@ -35,7 +39,6 @@ export function harness(maxRounds = 5, turnLimitMs?: number) {
   let credentialDelivery:
     | { connection: RoomConnection; token: string | undefined }
     | undefined;
-  const dealRng = () => 0.25;
   const { rules, calls } = rulesFixture(maxRounds, dealRng);
   function event(fn: () => void) {
     const before = clock.reads;
@@ -91,7 +94,10 @@ export function harness(maxRounds = 5, turnLimitMs?: number) {
         const keys = Object.keys(phaseExamples[1].view).filter(
           (k) => k !== "ownHand",
         );
-        if (v.phase === "LOBBY") keys.push("hostSeatId", "canStart");
+        if (v.phase === "LOBBY") {
+          keys.push("hostSeatId", "canStart");
+          if (v.lastGameResult) keys.push("lastGameResult");
+        }
         const player =
           v.phase === "LOBBY" ? null : at(at(calls.state).players[at(self)]);
         if (!player?.isOut) {
@@ -179,6 +185,7 @@ export function harness(maxRounds = 5, turnLimitMs?: number) {
   const timer = () => at(timers.at(-1));
   return {
     clock,
+    rules,
     codes,
     tokens,
     calls,

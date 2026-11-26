@@ -9,6 +9,7 @@ import {
   INITIAL_CHIPS,
 } from "@caxio/shared/contracts/engine";
 import type {
+  LastGameResult,
   PlayerView,
   PublicSeat,
   PublicTable,
@@ -18,6 +19,7 @@ import type { RoomConnection } from "../contracts";
 export interface Occupant {
   id: SeatId;
   token: string;
+  disconnectedTurns: number;
   connection: RoomConnection | null;
   cancelReservation?: () => void;
 }
@@ -29,6 +31,8 @@ export interface Room {
   nextJoin: number;
   revision: number;
   game: GameState | null;
+  lastTurnId: number;
+  lastGameResult?: LastGameResult;
   deadline: number | null;
   cancelTurn?: () => void;
   cancelDisposal?: () => void;
@@ -78,6 +82,7 @@ function table(room: Room, recipient: SeatId): PublicTable {
       seatOrder: occupants.map((s) => s.id),
       activePlayers: [],
       hostSeatId,
+      ...(room.lastGameResult && { lastGameResult: room.lastGameResult }),
       canStart: hostSeatId === recipient && ready(room),
       currentTurn: null,
       consecutivePasses: 0,

@@ -1,4 +1,5 @@
 import { expect } from "bun:test";
+import { rules as engine } from "@caxio/shared";
 import type {
   Action,
   GameState,
@@ -14,8 +15,6 @@ import type { RulesApi } from "@caxio/shared/contracts/engine";
 import {
   a4Settlement,
   firstDealState,
-  gameOverState,
-  seatReuse,
   settledState,
   spectatorExamples,
 } from "@caxio/shared/contracts/fixtures";
@@ -78,6 +77,11 @@ export function rulesFixture(maxRounds: number, rng: () => number) {
     manual: 0,
     automatic: 0,
     attempts: 0,
+    timeouts: 0,
+    advances: 0,
+    settlements: 0,
+    endChecks: 0,
+    rankings: 0,
     state: null as GameState | null,
   };
   const record = (state: GameState) => {
@@ -88,9 +92,55 @@ export function rulesFixture(maxRounds: number, rng: () => number) {
     rankTile: unused,
     classify: unused,
     compare: unused,
-    settle: unused,
-    rank: unused,
-    isGameOver: unused,
+    settle(state) {
+      calls.settlements++;
+      const eliminate = state.activePlayers.length === 4;
+      const results = eliminate
+        ? at(spectatorExamples.transition.view.lastSettlement).results
+        : a4Settlement.results;
+      const players = slots<PlayerState>((id) => {
+        const p = state.players[id];
+        if (!p) return null;
+        const change =
+          results.find((row) => row.seatId === id)?.chipChange ?? 0;
+        if (eliminate && id === 3)
+          return {
+            ...p,
+            chips: 0,
+            isOut: true,
+            eliminatedRound: 1,
+            eliminatedEffectiveTiles: 64,
+          };
+        return { ...p, chips: p.chips + change };
+      });
+      const details = slots((id) => {
+        if (eliminate && id === 3)
+          return { round: 1, remaining: 8, twos: 3, effective: 64 };
+        const d = settledState.lastSettlement.details[id];
+        return d && { ...d, round: state.round };
+      });
+      return {
+        ...state,
+        players,
+        activePlayers: state.activePlayers.filter((id) => !players[id]?.isOut),
+        lastSettlement: {
+          round: state.round,
+          results,
+          details,
+          payments: eliminate
+            ? [...a4Settlement.payments, { from: 3, to: 0, amount: 64 }]
+            : a4Settlement.payments,
+        },
+      };
+    },
+    rank(state, leaver) {
+      calls.rankings++;
+      return engine.rank(state, leaver);
+    },
+    isGameOver(state) {
+      calls.endChecks++;
+      return engine.isGameOver(state);
+    },
     startRound(order, dealRng) {
       expect(dealRng).toBe(rng);
       calls.deals++;
@@ -102,9 +152,7 @@ export function rulesFixture(maxRounds: number, rng: () => number) {
             ? deck15.slice(id * 12, id * 12 + 12)
             : order.length === 4
               ? at(fourHands[id])
-              : leader === 2
-                ? at(seatReuse.hands[id])
-                : at(firstDealState.players[id]).hand;
+              : at(firstDealState.players[order.indexOf(id)]).hand;
         return { ...firstDealState.players[0], hand };
       });
       return record({
@@ -120,6 +168,7 @@ export function rulesFixture(maxRounds: number, rng: () => number) {
       });
     },
     advance(state, dealRng) {
+      calls.advances++;
       expect(dealRng).toBe(rng);
       if (state.phase === "ROUND_START")
         return record({
@@ -128,13 +177,14 @@ export function rulesFixture(maxRounds: number, rng: () => number) {
           turnId: state.turnId + 1,
         });
       expect(state.phase).toBe("ROUND_SETTLEMENT");
-      if (state.round === state.maxRounds) {
-        const ranking =
-          state.seatOrder.length === 4
-            ? spectatorExamples.gameOver.view.ranking
-            : gameOverState.ranking;
-        return record({ ...state, phase: "GAME_OVER", ranking });
+      if (rules.isGameOver(state)) {
+        return record({
+          ...state,
+          phase: "GAME_OVER",
+          ranking: rules.rank(state),
+        });
       }
+      calls.deals++;
       return record({
         ...state,
         phase: "ROUND_START",
@@ -159,6 +209,7 @@ export function rulesFixture(maxRounds: number, rng: () => number) {
       });
     },
     timeoutAction(state): Action {
+      calls.timeouts++;
       if (state.tableHand) return { type: "PASS" };
       const hand = at(state.players[at(state.currentTurn)]).hand;
       const n = at(state.maxNumber);
@@ -235,49 +286,12 @@ export function rulesFixture(maxRounds: number, rng: () => number) {
           consecutivePasses: 0,
         };
         if (!hand.length) {
-          const eliminate = state.activePlayers.length === 4;
-          const results = eliminate
-            ? at(spectatorExamples.transition.view.lastSettlement).results
-            : a4Settlement.results;
-          const players = slots<PlayerState>((id) => {
-            const p = next.players[id];
-            if (!p) return null;
-            const change =
-              results.find((row) => row.seatId === id)?.chipChange ?? 0;
-            if (eliminate && id === 3)
-              return {
-                ...p,
-                chips: 0,
-                isOut: true,
-                eliminatedRound: 1,
-                eliminatedEffectiveTiles: 64,
-              };
-            return { ...p, chips: p.chips + change };
-          });
-          const details = slots((id) => {
-            if (eliminate && id === 3)
-              return { round: 1, remaining: 8, twos: 3, effective: 64 };
-            const d = settledState.lastSettlement.details[id];
-            return d && { ...d, round: state.round };
-          });
-          next = {
+          next = rules.settle({
             ...next,
             phase: "ROUND_SETTLEMENT",
             turnId: state.turnId,
             currentTurn: null,
-            players,
-            activePlayers: state.activePlayers.filter(
-              (id) => !players[id]?.isOut,
-            ),
-            lastSettlement: {
-              round: state.round,
-              results,
-              details,
-              payments: eliminate
-                ? [...a4Settlement.payments, { from: 3, to: 0, amount: 64 }]
-                : a4Settlement.payments,
-            },
-          };
+          });
         }
       }
       if (automatic) calls.automatic++;
