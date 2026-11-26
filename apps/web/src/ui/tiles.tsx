@@ -2,9 +2,9 @@ import type { Tile } from "@caxio/shared/contracts/domain";
 import type { PlayerView } from "@caxio/shared/contracts/wire";
 import type { CSSProperties } from "react";
 import { atlases, backRect, tileRect } from "../visual/assets";
-import { type Layout, type Mode, type Rect, seatLabel } from "../visual/layout";
+import type { Layout, Mode, Rect } from "../visual/layout";
 import { stage, tile } from "../visual/tokens";
-import { activate, passedSeats, tileName } from "./state";
+import { activate, passedSeats, seatName, tileName } from "./state";
 
 export function box(rect: Rect | undefined): CSSProperties | undefined {
   return (
@@ -117,7 +117,8 @@ export function Seats({
             : passed.has(seatId)
               ? "패스"
               : "";
-        const label = `${seatLabel(seatId)} ${s.remainingTileCount}장 ${s.chips}칩`;
+        const name = seatName(view, seatId),
+          label = `${name} ${s.remainingTileCount}장 ${s.chips}칩`;
         const wide = mode === "wide";
         return (
           <section
@@ -158,7 +159,7 @@ export function Seats({
               className={active ? "gc-plate gc-current" : "gc-plate"}
               style={wide ? box(nameplate) : undefined}
             >
-              {label}
+              {wide ? name : label}
               {!wide && active ? " 차례" : ""}
             </span>
             {state && (

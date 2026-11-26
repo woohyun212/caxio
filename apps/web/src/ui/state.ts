@@ -5,6 +5,7 @@ import type {
 } from "@caxio/shared/contracts/domain";
 import {
   ABANDONMENT_NOTICE,
+  isPlayerName,
   isRoomCode,
   type PlayerView,
 } from "@caxio/shared/contracts/wire";
@@ -46,6 +47,41 @@ export function describe(result: PreviewResult, short = false) {
       ? result.representative
       : tileName(result.representative);
   return `${kind}${short ? " " : " · "}${representative}`;
+}
+/** The seat's name, or seatLabel when it is unnamed or vacant. */
+export function seatName(view: PlayerView, id: number) {
+  return view.slots[id]?.name ?? seatLabel(id);
+}
+/** Leaving from an active seat in a running game ends it at once, so the UI confirms first. */
+export function confirmsLeave(view: PlayerView, seatId: number | null) {
+  const self = seatId === null ? null : view.slots[seatId];
+  return (
+    view.phase !== "LOBBY" &&
+    view.phase !== "GAME_OVER" &&
+    !!self &&
+    !self.isOut
+  );
+}
+export const nameHint = "이름은 한글·영문·숫자로 6자까지 쓸 수 있어요.";
+const nameKey = "caxio.name";
+/** The trimmed entry name, undefined when empty, false when the server would reject it. */
+export function entryName(input: string): string | undefined | false {
+  const name = input.trim();
+  return !name ? undefined : isPlayerName(name) ? name : false;
+}
+// localStorage may be missing or throw; the name is only a convenience.
+export function recallName() {
+  try {
+    return globalThis.localStorage.getItem(nameKey) ?? "";
+  } catch {
+    return "";
+  }
+}
+export function rememberName(name: string | undefined) {
+  try {
+    if (name) globalThis.localStorage.setItem(nameKey, name);
+    else globalThis.localStorage.removeItem(nameKey);
+  } catch {}
 }
 export function enterCode(input: string, join: (code: string) => void) {
   const code = input.trim().toUpperCase();
@@ -141,8 +177,8 @@ export function passedSeats(view: PlayerView) {
 export function dealText(view: PlayerView, compact = false) {
   if (view.currentTurn === null) return "";
   if (compact)
-    return `R${view.round} 1~${view.maxNumber} ${view.slots[view.currentTurn]?.remainingTileCount}장씩 선 ${seatLabel(view.currentTurn)} 구름3`;
-  return `R${view.round} · 숫자 1~${view.maxNumber} · ${view.slots[view.currentTurn]?.remainingTileCount}장씩 · 선 ${seatLabel(view.currentTurn)}(구름 3)`;
+    return `R${view.round} 1~${view.maxNumber} ${view.slots[view.currentTurn]?.remainingTileCount}장씩 선 ${seatName(view, view.currentTurn)} 구름3`;
+  return `R${view.round} · 숫자 1~${view.maxNumber} · ${view.slots[view.currentTurn]?.remainingTileCount}장씩 · 선 ${seatName(view, view.currentTurn)}(구름 3)`;
 }
 function timeoutNotice(type: "PLAY" | "PASS") {
   return type === "PLAY"
@@ -197,7 +233,7 @@ export function nextNotice(
     if (a.type === "PASS")
       return v.tableHand
         ? "패스"
-        : `패스 · 새 선 · ${seatLabel(v.currentTurn ?? a.seatId)}`;
+        : `패스 · 새 선 · ${seatName(v, v.currentTurn ?? a.seatId)}`;
   }
   if (v.round !== prev.round && v.currentTurn !== null && !v.lastPlay)
     return dealText(v);
@@ -217,7 +253,7 @@ export function automaticSettlement(view: PlayerView | null) {
     (view.round === view.lastSettlement.round || !view.lastPlay)
   );
 }
-export type PanelKind = "menu" | "rules" | "settlement";
+export type PanelKind = "menu" | "rules" | "settlement" | "leave";
 export type PanelState = { kind: PanelKind | null; page: number };
 export function nextPanel(
   previous: PlayerView | null,

@@ -7,7 +7,17 @@ import {
 import { type ReactNode, useRef, useState } from "react";
 import type { GameControlsProps } from "../contracts";
 import { seatLabel } from "../visual/layout";
-import { activate, outage, type PanelKind, submitEntryCode } from "./state";
+import {
+  activate,
+  entryName,
+  nameHint,
+  outage,
+  type PanelKind,
+  recallName,
+  rememberName,
+  seatName,
+  submitEntryCode,
+} from "./state";
 
 export function Action({
   children,
@@ -44,29 +54,66 @@ export function Entry({
   message: string;
 }) {
   const [code, setCode] = useState(""),
-    [invalid, setInvalid] = useState(false);
+    [name, setName] = useState(recallName),
+    [invalid, setInvalid] = useState<"" | "name" | "code">("");
   const busy =
     outage(model) ||
     (model.pending || model.connection === "CONNECTING"
       ? "서버 응답 대기"
       : "");
-  const notice = message || (invalid ? "6자리 방 코드를 확인해 주세요." : busy);
+  const notice =
+    message ||
+    (invalid === "name"
+      ? nameHint
+      : invalid === "code"
+        ? "6자리 방 코드를 확인해 주세요."
+        : busy);
+  // Returns the name to request with, or false after showing the name hint.
+  const named = () => {
+    const n = entryName(name);
+    if (n === false) setInvalid("name");
+    return n;
+  };
   return (
     <div className="gc-entry">
       <h1>caxio</h1>
+      <div className="gc-name">
+        <label htmlFor="gc-name">이름</label>
+        <input
+          id="gc-name"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            setInvalid("");
+          }}
+          aria-invalid={invalid === "name"}
+          spellCheck={false}
+        />
+      </div>
       <Action
         className="gc-primary"
         reason={busy}
         describedBy="gc-entry-status"
-        onClick={createRoom}
+        onClick={() => {
+          const n = named();
+          if (n === false) return;
+          rememberName(n);
+          createRoom(n);
+        }}
       >
         방 만들기
       </Action>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          const valid = submitEntryCode(busy, code, joinRoom);
-          if (valid !== undefined) setInvalid(!valid);
+          if (busy) return;
+          const n = named();
+          if (n === false) return;
+          const valid = submitEntryCode(busy, code, (roomCode) => {
+            rememberName(n);
+            joinRoom(roomCode, n);
+          });
+          if (valid !== undefined) setInvalid(valid ? "" : "code");
         }}
       >
         <label htmlFor="gc-code">방 코드</label>
@@ -75,9 +122,9 @@ export function Entry({
           value={code}
           onChange={(e) => {
             setCode(e.target.value);
-            setInvalid(false);
+            setInvalid("");
           }}
-          aria-invalid={invalid}
+          aria-invalid={invalid === "code"}
           autoCapitalize="characters"
           spellCheck={false}
         />
@@ -103,16 +150,19 @@ export function Lobby({
   model,
   view,
   startGame,
+  leaveRoom,
   message,
 }: {
   model: GameControlsProps["model"];
   view: Extract<PlayerView, { phase: "LOBBY" }>;
   startGame: () => void;
+  leaveRoom?: () => void;
   message: string;
 }) {
   const code = useRef<HTMLInputElement>(null);
   const offline = view.seatOrder.find((id) => !view.slots[id]?.isConnected);
-  const host = view.hostSeatId === model.seatId;
+  const host = view.hostSeatId === model.seatId,
+    last = view.lastGameResult;
   const reason =
     outage(model) ||
     (model.pending
@@ -121,7 +171,7 @@ export function Lobby({
         ? ""
         : offline === undefined
           ? "한 명 더 필요"
-          : `${seatLabel(offline)} 복귀 대기`);
+          : `${seatName(view, offline)} 복귀 대기`);
   return (
     <section className="gc-lobby">
       <div className="gc-room-code">
@@ -146,11 +196,12 @@ export function Lobby({
         >
           복사
         </Action>
+        <Action onClick={() => leaveRoom?.()}>나가기</Action>
       </div>
       <ul className="gc-lobby-seats" aria-label="현재 좌석">
         {view.slots.map((s, id) => (
           <li key={seatLabel(id)}>
-            {seatLabel(id)}{" "}
+            {seatName(view, id)}{" "}
             {s ? (s.isConnected ? "접속" : "복귀 대기") : "빈자리"}{" "}
             {id === view.hostSeatId ? "방장" : ""}{" "}
             {id === model.seatId ? "나" : ""}
@@ -173,21 +224,23 @@ export function Lobby({
         <div aria-live="polite">
           {message ||
             (view.hostSeatId !== null
-              ? `${seatLabel(view.hostSeatId)}이 방장이에요`
+              ? `방장 · ${seatName(view, view.hostSeatId)}`
               : "")}
         </div>
       </div>
-      {view.lastGameResult && (
+      {last && (
         <section className="gc-last-result" aria-labelledby="gc-last-ranking">
           <div>{ABANDONMENT_NOTICE}</div>
           <div>
-            {LEAVER_SEAT_PREFIX} {seatLabel(view.lastGameResult.leaverSeatId)}
+            {LEAVER_SEAT_PREFIX}{" "}
+            {last.ranking.find((r) => r.seatId === last.leaverSeatId)?.name ??
+              seatLabel(last.leaverSeatId)}
           </div>
           <h2 id="gc-last-ranking">{LAST_GAME_RANKING_TITLE}</h2>
           <ol>
-            {view.lastGameResult.ranking.map(({ seatId, rank, chips }) => (
+            {last.ranking.map(({ seatId, rank, chips, name }) => (
               <li key={seatId}>
-                {rank}위 {seatLabel(seatId)} {chips}칩
+                {rank}위 {name ?? seatLabel(seatId)} {chips}칩
               </li>
             ))}
           </ol>
@@ -210,6 +263,7 @@ export function Panel({
   open,
   setPage,
   close,
+  leave = () => {},
 }: {
   compact?: boolean;
   kind: PanelKind;
@@ -218,6 +272,8 @@ export function Panel({
   open: (kind: PanelKind) => void;
   setPage: (n: number) => void;
   close: () => void;
+  // The menu's [나가기]: leaves at once or opens the "leave" confirmation.
+  leave?: () => void;
 }) {
   const s = view.lastSettlement,
     own =
@@ -236,14 +292,23 @@ export function Panel({
       className="gc-panel"
       data-panel={kind}
       aria-label={
-        kind === "menu" ? "메뉴" : kind === "rules" ? "족보" : "직전 정산"
+        kind === "menu"
+          ? "메뉴"
+          : kind === "rules"
+            ? "족보"
+            : kind === "leave"
+              ? "나가기"
+              : "직전 정산"
       }
     >
       {kind === "menu" ? (
         <div className="gc-actions">
           <Action onClick={() => open("rules")}>족보</Action>
           {s && <Action onClick={() => open("settlement")}>직전 정산</Action>}
+          <Action onClick={leave}>나가기</Action>
         </div>
+      ) : kind === "leave" ? (
+        <div>지금 나가면 게임이 바로 끝나고 내가 최하위가 돼요.</div>
       ) : kind === "rules" ? (
         <>
           <strong>족보 {page + 1}/3</strong>
@@ -257,7 +322,7 @@ export function Panel({
               .slice(current * rowsPerPage, (current + 1) * rowsPerPage)
               .map((r) => (
                 <div key={r.seatId}>
-                  {r.rank}위 {seatLabel(r.seatId)}{" "}
+                  {r.rank}위 {seatName(view, r.seatId)}{" "}
                   {r.chipChange > 0 ? "+" : r.chipChange < 0 ? "−" : ""}
                   {Math.abs(r.chipChange)}칩 → {view.slots[r.seatId]?.chips}칩{" "}
                   {view.slots[r.seatId]?.isOut
@@ -293,7 +358,16 @@ export function Panel({
             </Action>
           </>
         )}
-        <Action onClick={close}>닫기</Action>
+        {kind === "leave" ? (
+          <>
+            <Action onClick={leave}>나가기</Action>
+            <Action className="gc-keep" onClick={close}>
+              계속하기
+            </Action>
+          </>
+        ) : (
+          <Action onClick={close}>닫기</Action>
+        )}
       </div>
     </section>
   );
@@ -304,12 +378,14 @@ export function EndScreen({
   seatId,
   reason,
   createRoom,
+  leave,
   openSettlement,
 }: {
   view: PlayerView;
   seatId: GameControlsProps["model"]["seatId"];
   reason: string;
-  createRoom: () => void;
+  createRoom: (name?: string) => void;
+  leave: () => void;
   openSettlement: (button: HTMLButtonElement) => void;
 }) {
   return (
@@ -317,7 +393,7 @@ export function EndScreen({
       <strong>{reason}</strong>
       {view.ranking.map((r) => (
         <div key={r.seatId}>
-          {r.rank}위 {seatLabel(r.seatId)} {view.slots[r.seatId]?.chips}칩{" "}
+          {r.rank}위 {seatName(view, r.seatId)} {view.slots[r.seatId]?.chips}칩{" "}
           {view.slots[r.seatId]?.isOut ? "탈락" : ""}{" "}
           {r.seatId === seatId ? "▶ 나" : ""}
         </div>
@@ -331,9 +407,13 @@ export function EndScreen({
         >
           직전 정산
         </button>
-        <Action className="gc-primary" onClick={createRoom}>
+        <Action
+          className="gc-primary"
+          onClick={() => createRoom(entryName(recallName()) || undefined)}
+        >
           새 방 만들기
         </Action>
+        <Action onClick={leave}>나가기</Action>
       </div>
     </section>
   );

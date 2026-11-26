@@ -271,12 +271,31 @@ export const createClientSession: CreateClientSession = (deps) => {
       store.subscribe((state, previous) => {
         bestEffort(() => listener(state, previous));
       }),
-    createRoom() {
-      if (beginAction()) connect({ type: "CREATE_ROOM" });
+    createRoom(name) {
+      if (beginAction())
+        connect(
+          name === undefined
+            ? { type: "CREATE_ROOM" }
+            : { type: "CREATE_ROOM", name },
+        );
     },
-    joinRoom(roomCode) {
+    joinRoom(roomCode, name) {
       if (beginAction() && isRoomCode(roomCode))
-        connect({ type: "JOIN_ROOM", roomCode });
+        connect(
+          name === undefined
+            ? { type: "JOIN_ROOM", roomCode }
+            : { type: "JOIN_ROOM", roomCode, name },
+        );
+    },
+    leaveRoom() {
+      if (disposed) return;
+      if (getState().seatId !== null)
+        bestEffort(() =>
+          current?.socket?.send(JSON.stringify({ type: "LEAVE_ROOM" })),
+        );
+      detach();
+      bestEffort(() => deps.storage.removeItem(credentialKey));
+      setState({ ...empty, credential: null });
     },
     resume() {
       if (!beginAction()) return;

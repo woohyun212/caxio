@@ -14,6 +14,9 @@ import {
   epoch,
   gameOverExamples,
   lastPlaySequence,
+  leaveExamples,
+  namedViews,
+  playerNameExamples,
   previewExamples,
   previewRejectionOrder,
   representativeExamples,
@@ -43,8 +46,10 @@ import {
   abandonmentNotice,
   automaticSettlement,
   clockText,
+  confirmsLeave,
   describe,
   enterCode,
+  entryName,
   locks,
   nextFocusSlot,
   nextNotice,
@@ -52,6 +57,8 @@ import {
   outage,
   type PanelState,
   passedSeats,
+  recallName,
+  rememberName,
   requestTurn,
   seconds,
   submitEntryCode,
@@ -136,6 +143,26 @@ function click(node: ReactNode) {
   if (!isValidElement<{ onClick: () => void }>(node))
     throw Error("expected button");
   node.props.onClick();
+}
+// Find a hook-free Action by its text anywhere in a hook-free element tree.
+function findAction(
+  node: ReactNode,
+  text: string,
+): Parameters<typeof Action>[0] {
+  const found = (function search(
+    n: ReactNode,
+  ): Parameters<typeof Action>[0] | undefined {
+    if (!isValidElement<{ children?: ReactNode }>(n)) return undefined;
+    if (n.type === Action && n.props.children === text)
+      return n.props as Parameters<typeof Action>[0];
+    for (const child of Children.toArray(n.props.children)) {
+      const hit = search(child);
+      if (hit) return hit;
+    }
+    return undefined;
+  })(node);
+  if (!found) throw Error(`missing action ${text}`);
+  return found;
 }
 function handClick(p: GameControlsProps) {
   const { model, preview } = p,
@@ -538,7 +565,7 @@ test("entry normalizes codes and lobby follows host transfer and start permissio
     'type="button">시작',
   );
   const guest = render(props(seatReuse.aReturned.view, { seatId: 1 }));
-  expect(guest).toContain("3번이 방장이에요");
+  expect(guest).toContain("방장 · 3번");
   expect(guest).toContain("방장의 시작을 기다려 주세요");
   expect(guest).not.toContain(">시작<");
 });
@@ -552,10 +579,12 @@ test("end reason prioritizes the last round, preserves tied ranks and creates a 
   expect(html).toMatch(/1위 1번 65칩.*1위 2번 65칩.*3위 3번 62칩/);
   expect(html).toContain(">새 방 만들기<");
   const createRoom = mock(noop),
+    leave = mock(noop),
     end = EndScreen({
       view: v,
       seatId: 0,
       createRoom,
+      leave,
       reason: "마지막 라운드 종료",
       openSettlement: noop,
     });
@@ -564,11 +593,13 @@ test("end reason prioritizes the last round, preserves tied ranks and creates a 
   const actions = Children.toArray(end.props.children).at(-1);
   if (!isValidElement<{ children: ReactNode }>(actions))
     throw Error("missing end actions");
-  const newRoom = Children.toArray(actions.props.children).at(-1);
+  const newRoom = Children.toArray(actions.props.children).at(-2);
   if (!isValidElement<Parameters<typeof Action>[0]>(newRoom))
     throw Error("missing action");
   click(Action(newRoom.props));
   expect(createRoom).toHaveBeenCalledTimes(1);
+  click(Action(findAction(end, "나가기")));
+  expect(leave).toHaveBeenCalledTimes(1);
 });
 test("trick clear keeps a sorted text record and the next round retains settlement in the menu", () => {
   const clear = lastPlaySequence.continuing[2].view;
@@ -580,7 +611,7 @@ test("trick clear keeps a sorted text record and the next round retains settleme
     })),
   );
   expect(html).toContain("직전 제출 · 1번 · 싱글 · 구름 9");
-  expect(html).toMatch(/class="gc-turn"[^>]*>▶ 내 차례 · 선</);
+  expect(html).toMatch(/class="gc-turn"[^>]*>▶ 내 차례</);
   expect(html).not.toContain('role="img"');
   const next = lastPlaySequence.continuing[4].view;
   expect(render(props(next))).not.toContain("직전 제출 ·");
@@ -916,7 +947,7 @@ test("compact status, command, end and page buttons use adjacent 2px action grou
   ]);
   expect(
     groups(render(props(gameOverExamples[0].snapshot.view, {}, 0))),
-  ).toContainEqual(["직전 정산", "새 방 만들기"]);
+  ).toContainEqual(["직전 정산", "새 방 만들기", "나가기"]);
   const panel = renderToStaticMarkup(
     <Panel
       view={follow}
@@ -946,8 +977,8 @@ test("create room uses the primary ink button on entry and final ranking", () =>
 test("trick clear marks my lead, names another leader and announces the new lead", () => {
   const [, before, clear] = lastPlaySequence.continuing;
   for (const [seatId, turn] of [
-    [0, "▶ 내 차례 · 선"],
-    [1, "새 선 · 1번"],
+    [0, "▶ 내 차례"],
+    [1, "▶ 1번"],
   ] as const) {
     const p = props(clear.view, { seatId });
     expect(render(p).match(/class="gc-turn"[^>]*>([^<]+)</)?.[1]).toBe(turn);
@@ -1087,7 +1118,7 @@ test("disconnected entry without a credential is silent and unlocked", () => {
   );
   expect(html).not.toContain("aria-disabled");
   expect(html).toMatch(/aria-live="polite"[^>]*><\/div>/);
-  expect(html.replace(/<[^>]+>/g, "")).toBe("caxio방 만들기방 코드입장");
+  expect(html.replace(/<[^>]+>/g, "")).toBe("caxio이름방 만들기방 코드입장");
 });
 
 test("entry announces a pending request once and describes its lock alongside an error", () => {
@@ -1491,7 +1522,7 @@ test("only the connected game-to-lobby transition updates the live abandonment a
       'role="status"><',
     ),
   ).toBe(silent);
-  expect(announced).toContain("2번이 방장이에요");
+  expect(announced).toContain("방장 · 2번");
   for (const html of [announced, silent])
     expect(html).not.toMatch(/gc-end|data-panel="settlement"|대국 종료/);
   const deal = render(
@@ -1504,4 +1535,152 @@ test("only the connected game-to-lobby transition updates the live abandonment a
   expect(deal).not.toMatch(
     /시간 초과|gc-end|data-panel="settlement"|gc-last-result/,
   );
+});
+
+test("names replace seat numbers in the lobby, nameplates, turn, caption and past ranking", () => {
+  const lobby = render(
+    props(namedViews.lobby.frame.view, { seatId: namedViews.lobby.recipient }),
+  );
+  expect(lobby).toMatch(
+    /<li>철수 접속 방장 나<\/li><li>2번 접속 {2}<\/li><li>Bob7 접속 {2}<\/li><li>ㅋㅋ 접속 {2}<\/li><li>가나다라마바 접속 {2}<\/li>/,
+  );
+  expect(lobby).toContain("방장 · 철수");
+  const game = namedViews.game.frame.view,
+    seatId = namedViews.game.recipient;
+  const caption = () =>
+    ({
+      ok: true,
+      kind: "SINGLE",
+      representative: { number: 9, suit: 1 },
+    }) as const;
+  const wide = render(props(game, { seatId }, 3, caption));
+  // Wide plates carry only the label; counts and chips stay in the seat's accessible name.
+  expect(tags(wide, /class="gc-plate[^"]*"[^>]*>[^<]*</g)).toEqual([
+    expect.stringMatching(/>Bob7<$/),
+    expect.stringMatching(/>ㅋㅋ<$/),
+    expect.stringMatching(/gc-current.*>가나다라마바<$/),
+    expect.stringMatching(/>철수<$/),
+  ]);
+  expect(wide).toContain('aria-label="가나다라마바 12장 64칩 · 접속 · 차례"');
+  expect(wide).toMatch(/class="gc-turn"[^>]*>▶ 가나다라마바</);
+  expect(wide).toContain("ㅋㅋ · 싱글 · 별 9");
+  // The command row keeps the seat number to fit its 97px cell.
+  expect(wide).toMatch(/class="gc-self">.*2번 64칩/);
+  const compact = render(props(game, { seatId }, 0, caption));
+  expect(compact).toContain(">가나다라마바 12장 64칩 차례<");
+  expect(compact).toContain(">Bob7 11장 64칩<");
+  const past = render(
+    props(leaveExamples.game.after[0].frame.view, { seatId: 0 }),
+  );
+  expect(past).toContain(`${LEAVER_SEAT_PREFIX} Bob7`);
+  expect(past).toMatch(
+    /<li>1위 철수 64칩<\/li><li>1위 2번 64칩<\/li><li>3위 Bob7 64칩<\/li>/,
+  );
+});
+test("the status band shows only whose turn it is and the remaining seconds", () => {
+  for (const view of [lead, follow, lastPlaySequence.continuing[2].view])
+    for (const k of [3, 0]) {
+      const html = render(props(view, {}, k));
+      const status = html.match(/<header[^>]*>.*?<\/header>/)?.[0] ?? "";
+      expect(status).toMatch(/class="gc-turn"[^>]*>▶ (내 차례|\d번)</);
+      expect(status).not.toMatch(
+        /초과|자동|새 선|받기| · 선|aria-label="[^"]*초/,
+      );
+      expect(status).toMatch(/role="timer" class="gc-time">\d+초</);
+    }
+});
+test("entry names are trimmed, validated like the server and remembered best effort", () => {
+  for (const name of playerNameExamples.valid)
+    expect(entryName(name)).toBe(name);
+  for (const name of playerNameExamples.normalize)
+    expect(entryName(name)).toBe(name.trim());
+  expect(entryName("  ")).toBeUndefined();
+  // The wire rejects untrimmed names; the entry trims them first.
+  for (const name of playerNameExamples.invalid)
+    if (typeof name === "string" && name.trim() && name === name.trim())
+      expect(entryName(name)).toBe(false);
+  const saved = new Map<string, string>();
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  try {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (k: string) => saved.get(k) ?? null,
+        setItem: (k: string, v: string) => saved.set(k, v),
+        removeItem: (k: string) => saved.delete(k),
+      },
+    });
+    rememberName("철수");
+    expect(saved.get("caxio.name")).toBe("철수");
+    expect(recallName()).toBe("철수");
+    expect(render(props(null))).toMatch(/id="gc-name"[^>]*value="철수"/);
+    rememberName(undefined);
+    expect(saved.has("caxio.name")).toBe(false);
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get() {
+        throw Error("blocked");
+      },
+    });
+    expect(recallName()).toBe("");
+    expect(() => rememberName("철수")).not.toThrow();
+    expect(render(props(null))).toMatch(/id="gc-name"[^>]*value=""/);
+  } finally {
+    if (original) Object.defineProperty(globalThis, "localStorage", original);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+});
+test("leave sits in the lobby, menu and end screen and confirms only from an active seat in a running game", () => {
+  expect(render(props(seatReuse.joins[0].view))).toMatch(
+    /<button type="button">복사<\/button><button type="button">나가기<\/button>/,
+  );
+  expect(confirmsLeave(follow, 0)).toBe(true);
+  expect(
+    confirmsLeave(spectatorExamples.restored.view, spectatorExamples.recipient),
+  ).toBe(false);
+  expect(confirmsLeave(gameOverExamples[0].snapshot.view, 0)).toBe(false);
+  expect(confirmsLeave(seatReuse.joins[0].view, 0)).toBe(false);
+  expect(confirmsLeave(follow, null)).toBe(false);
+  const leave = mock(noop),
+    close = mock(noop);
+  const panel = (kind: "menu" | "leave") =>
+    Panel({
+      view: follow,
+      kind,
+      page: 0,
+      open: noop,
+      setPage: noop,
+      close,
+      leave,
+    });
+  click(Action(findAction(panel("menu"), "나가기")));
+  expect(leave).toHaveBeenCalledTimes(1);
+  const confirm = renderToStaticMarkup(panel("leave"));
+  expect(confirm).toContain(
+    'aria-label="나가기"><div>지금 나가면 게임이 바로 끝나고 내가 최하위가 돼요.</div>',
+  );
+  expect(confirm).toMatch(
+    /<button type="button">나가기<\/button><button type="button" class="gc-keep">계속하기<\/button>/,
+  );
+  expect(confirm).not.toContain("닫기");
+  click(Action(findAction(panel("leave"), "계속하기")));
+  expect(close).toHaveBeenCalledTimes(1);
+  click(Action(findAction(panel("leave"), "나가기")));
+  expect(leave).toHaveBeenCalledTimes(2);
+});
+test("entry, lobby, panel, end and compact rows keep space between adjacent blocks", () => {
+  for (const [selector, declaration] of [
+    [".gc-entry > :is(h1, .gc-name)", "margin-bottom: 8px"],
+    [".gc-entry > :where(div:not(.gc-name, :empty))", "margin-top: 8px"],
+    [".gc-compact .gc-entry > form", "margin-top: 8px"],
+    [".gc-lobby > * + *", "margin-top: 8px"],
+    [".gc-wide .gc-room-code", "gap: 8px"],
+    ['.gc-panel[data-panel="menu"]', "gap: 2px 8px"],
+    ['.gc-wide .gc-panel:not([data-panel="settlement"])', "padding-block: 2px"],
+    [".gc-wide .gc-end", "margin-block: 4px"],
+    [".gc-end > .gc-actions", "margin-top: 8px"],
+    [".gc-compact :is(.gc-status, .gc-command)", "padding-inline: 4px"],
+    [".gc-compact .gc-table", "margin-block: 4px"],
+  ] as const)
+    expect(styleRule(selector)).toContain(declaration);
 });

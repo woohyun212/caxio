@@ -34,6 +34,7 @@ import {
   GameApp,
   listenForAudioUnlock,
   listenForSeatRecovery,
+  pageSockets,
   preview,
   scheduleSeatRecovery,
   startSession,
@@ -87,6 +88,7 @@ class Socket extends EventTarget {
 function harness(
   origin = "https://game.test",
   restore: boolean | Credential = false,
+  wrap = (open: ReturnType<typeof browserSocket>) => open,
 ) {
   const connect = mock((_url: string) => new Socket());
   function socket(index = 0) {
@@ -126,7 +128,7 @@ function harness(
     },
   };
   const session = startSession(
-    browserSocket(origin, connect),
+    wrap(browserSocket(origin, connect)),
     storage,
     audio,
     create,
@@ -270,6 +272,47 @@ test("page recovery events preserve connected errors and skip sessions without c
   expect(h.resume).toHaveBeenCalledTimes(1);
   expect(h.connect).toHaveBeenCalledTimes(1);
   cleanup();
+});
+
+test("a page hidden into the back/forward cache drops its socket and resumes the seat when shown", () => {
+  for (const closeArrives of ["while hidden", "after shown"] as const) {
+    let sockets: ReturnType<typeof pageSockets> | undefined;
+    const h = harness("https://game.test", false, (open) => {
+      sockets = pageSockets(open);
+      return sockets.openSocket;
+    });
+    if (!sockets) throw Error("unwired");
+    const page = new EventTarget();
+    const stop = sockets.listen(page, h.session);
+    h.seated(phaseExamples[2]);
+    const credential = h.session.getState().credential;
+    const close = mock();
+    h.socket(0).close = close;
+    page.dispatchEvent(new Event("pagehide"));
+    expect(close).toHaveBeenCalledTimes(1);
+    if (closeArrives === "while hidden") {
+      h.socket(0).dispatchEvent(new Event("close"));
+      // The immediate RESUME retry opens nothing while hidden, so the server sees the seat leave.
+      expect(h.connect).toHaveBeenCalledTimes(1);
+      expect(h.session.getState()).toMatchObject({
+        connection: "DISCONNECTED",
+        credential,
+      });
+    }
+    page.dispatchEvent(new Event("pageshow"));
+    if (closeArrives === "after shown")
+      h.socket(0).dispatchEvent(new Event("close"));
+    expect(h.connect).toHaveBeenCalledTimes(2);
+    h.socket(1).dispatchEvent(new Event("open"));
+    expect(h.socket(1).commands).toEqual([
+      { type: "RESUME", roomCode, token: "testing" },
+    ]);
+    stop();
+    const later = mock();
+    h.socket(1).close = later;
+    page.dispatchEvent(new Event("pagehide"));
+    expect(later).not.toHaveBeenCalled();
+  }
 });
 
 function recoveryClock() {
