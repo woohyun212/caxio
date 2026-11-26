@@ -569,7 +569,7 @@ test("entry normalizes codes and lobby follows host transfer and start permissio
     expect(html).toContain(roomCode);
   }
   expect(render(props(seatReuse.aReturned.view, { seatId: 2 }))).toContain(
-    'type="button">시작',
+    'type="button" class="gc-primary">시작',
   );
   const guest = render(props(seatReuse.aReturned.view, { seatId: 1 }));
   expect(guest).toContain("방장 · 3번");
@@ -1375,6 +1375,9 @@ test("compact settlement displays every rank together and keeps the menu overlay
     expect(html).toContain(row);
   expect(html).not.toMatch(/>이전<|>다음</);
   expect(html).toContain(">닫기<");
+  expect(
+    styleRule('.gc-compact [data-panel="settlement"] > div:not(.gc-actions)'),
+  ).toContain("margin-block: 2px");
   expect(styleRule(".gc-compact .gc-table")).toMatch(
     /^ {2}min-height: 80px;$/m,
   );

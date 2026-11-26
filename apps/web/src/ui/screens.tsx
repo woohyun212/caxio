@@ -279,6 +279,7 @@ export function Lobby({
         </div>
         {host && (
           <Action
+            className="gc-primary"
             onClick={startGame}
             reason={reason}
             describedBy="gc-start-reason"

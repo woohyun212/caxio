@@ -680,6 +680,7 @@
 }
 .gc-compact [data-panel="settlement"] > div:not(.gc-actions) {
   grid-column: 1 / -1;
+  margin-block: 2px;
 }
 @media (max-width: 359px) {
   .gc-compact .gc-status {
