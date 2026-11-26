@@ -139,18 +139,16 @@ test("product input record matches the converter, tests and provenance", () => {
   expect(record.trimEnd().split("\n").sort()).toEqual(expected.sort());
 });
 
-// The star ink is the only change since Q2. Every PNG keeps the star (or, in the grey
-// sheet, its grey) at PLTE entry 6; restoring Q2's #57307A (grey #434343) restores Q2's bytes.
-function withQ2Star(png: Buffer, grey: boolean) {
+// Restore only the four suit entries (5–8) after regenerating without the ink outline.
+function withQ2SuitColors(png: Buffer, grey: boolean) {
   const copy = Buffer.from(png);
   for (let pos = 8; pos < copy.length; ) {
     const length = copy.readUInt32BE(pos);
     if (copy.toString("ascii", pos + 4, pos + 8) === "PLTE") {
-      const entry = pos + 8 + 6 * 3;
-      expect([...copy.subarray(entry, entry + 3)]).toEqual(
-        grey ? [0x6c, 0x6c, 0x6c] : [...palette.star],
-      );
-      copy.set(grey ? [0x43, 0x43, 0x43] : [0x57, 0x30, 0x7a], entry);
+      const rgb = grey
+        ? "7474744343437d7d7d565656"
+        : "2a78b857307ab26e00a12b1c";
+      copy.set(Buffer.from(rgb, "hex"), pos + 8 + 5 * 3);
       copy.writeUInt32BE(
         crc32(copy.subarray(pos + 4, pos + 8 + length)),
         pos + 8 + length,
@@ -161,15 +159,18 @@ function withQ2Star(png: Buffer, grey: boolean) {
   return copy;
 }
 
-test("in-memory regeneration matches each committed output and, with Q2's star ink, its published Q2 checksum", () => {
+test("in-memory regeneration matches each committed output and, with Q2 fills and no outline, its published Q2 checksum", () => {
   assert.deepEqual(fresh.manifest, manifest);
   expect(fresh.record).toEqual(record);
   const published = checksums("hashes.sha256");
+  const withoutOutline = generate(raw, overrides, false).outputs;
   expect(fresh.outputs.size).toBe(18);
   for (const [path, data] of fresh.outputs) {
     expect(data.equals(readFileSync(join(root, path)))).toBe(true);
+    const original = withoutOutline.get(path);
+    assert(original);
     assert.equal(
-      sha256(withQ2Star(data, path.endsWith("contact-gray-1x.png"))),
+      sha256(withQ2SuitColors(original, path.endsWith("contact-gray-1x.png"))),
       published.get(`outputs/${basename(path)}`),
     );
   }
@@ -189,8 +190,8 @@ test("manifest lists exactly two shipped atlases with frozen metadata, sizes and
     atlases.compact.url,
   ]);
   for (const [mode, size] of [
-    ["wide", 1173],
-    ["compact", 955],
+    ["wide", 1299],
+    ["compact", 1050],
   ] as const) {
     const { url, width, height, allowedColors, alpha } = atlases[mode];
     const path = `apps/web/public${url}`,
@@ -234,6 +235,8 @@ test("all 60 faces preserve glyph masks, colour roles, alpha and the two-digit g
         const start = boxes.number.x + (n < 10 ? 5 : 0);
         const suit = fresh.masks.get(`suits-${s}`);
         assert(suit);
+        const filled = (i: number, j: number) =>
+          i >= 0 && j >= 0 && i < suit.w && j < suit.h && suit.get(i, j);
         for (let y = 0; y < rect.h; y++)
           for (let x = 0; x < rect.w; x++) {
             const pixel = png.texel(face.readUInt8(y * rect.w + x));
@@ -254,16 +257,21 @@ test("all 60 faces preserve glyph masks, colour roles, alpha and the two-digit g
               assert.equal(pixel.color, on ? allowed[0] : allowed[2]);
             }
             if (
-              y >= boxes.suit.y &&
-              y < boxes.suit.y + boxes.suit.h &&
-              x >= boxes.suit.x &&
-              x < boxes.suit.x + boxes.suit.w
+              y >= boxes.number.y + boxes.number.h &&
+              y < 35 &&
+              x > 0 &&
+              x < rect.w - 1
             ) {
+              const dx = x - boxes.suit.x;
+              const dy = y - boxes.suit.y;
+              const edge =
+                filled(dx - 1, dy) ||
+                filled(dx + 1, dy) ||
+                filled(dx, dy - 1) ||
+                filled(dx, dy + 1);
               assert.equal(
                 pixel.color,
-                suit.get(x - boxes.suit.x, y - boxes.suit.y)
-                  ? allowed[3]
-                  : allowed[2],
+                filled(dx, dy) ? allowed[3] : edge ? allowed[0] : allowed[2],
               );
             }
           }
@@ -344,7 +352,7 @@ test("Bayer inspection PNG rows follow top-left matrix order (render captures us
   }
 });
 
-test("token contrast on paper reaches 7:1 for digits and 3:1 for each suit", () => {
+test("ink on paper reaches 7:1 and all suit fills reach 3:1 against the ink outline", () => {
   function luminance(rgb: readonly number[]) {
     const [r, g, b] = rgb.map((byte) => {
       const v = byte / 255;
@@ -354,10 +362,13 @@ test("token contrast on paper reaches 7:1 for digits and 3:1 for each suit", () 
     return r * 0.2126 + g * 0.7152 + b * 0.0722;
   }
   for (const key of ["ink", "cloud", "star", "moon", "sun"] as const) {
-    const ratio =
-      (luminance(palette.paper) + 0.05) / (luminance(palette[key]) + 0.05);
+    const paper = luminance(palette.paper) + 0.05;
+    const color = luminance(palette[key]) + 0.05;
+    const ratio = Math.max(paper, color) / Math.min(paper, color);
     expect(record.contrastOnPaper[key]).toBeCloseTo(ratio, 12);
-    expect(ratio).toBeGreaterThanOrEqual(key === "ink" ? 7 : 3);
+    if (key === "ink") expect(ratio).toBeGreaterThanOrEqual(7);
+    else
+      expect(color / (luminance(palette.ink) + 0.05)).toBeGreaterThanOrEqual(3);
   }
 });
 

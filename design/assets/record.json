@@ -3,82 +3,82 @@
     {
       "path": "design/assets/outputs/mask-digits.png",
       "bytes": 193,
-      "sha256": "33519dd836ae2571a120785ac017a4375be9891b9ffce91f1fb14767e3dfe7e1"
+      "sha256": "edf35e1f95aa75b402d1a2f4878a57ced2fbf7936362759b03eac02ff19ff174"
     },
     {
       "path": "design/assets/outputs/mask-suits.png",
       "bytes": 225,
-      "sha256": "3fa4b0b10d586adf78bd0befc8b61c868b0c69ce78d18046d8848fec73884827"
+      "sha256": "22519f7cf1706cbb2478672468a28f8eae2fadaff94fc907a3a92c5aa32e7cdc"
     },
     {
       "path": "design/assets/outputs/mask-back.png",
       "bytes": 157,
-      "sha256": "a587bb1159b24a6d9c7da43eb2976182ef9b2078e3bcbdfa98f3d69a84d990fd"
+      "sha256": "151f8b6c11a7ca69ea858c75fdc1aad01b3bfebfa8c191d47ecba4d912d2fd6d"
     },
     {
       "path": "design/assets/outputs/contact-shapes-1x.png",
-      "bytes": 1216,
-      "sha256": "7db416e0c699ed14767998b42a6827cc730f4e006362630587c37de1486eb8e1"
+      "bytes": 1341,
+      "sha256": "eeaff00db29e6630ad57c0642063d20e5135b073942f00ce982f293d23f301b4"
     },
     {
       "path": "design/assets/outputs/contact-gray-1x.png",
-      "bytes": 1251,
-      "sha256": "2e75d23bcc3fff19091db92ad2feaf172abf95ffb3ac3a3008587761802b4989"
+      "bytes": 1377,
+      "sha256": "24bffd4ea6d68d696c1517772a1f368e072880f681d9be86f5ef71c3a471642d"
     },
     {
       "path": "design/assets/outputs/contact-wide-1x.png",
-      "bytes": 1251,
-      "sha256": "b60b7a0cca1628fd18252e4e8e3979479293fbe4881986cb5498a95b2c4be405"
+      "bytes": 1377,
+      "sha256": "323081a7107d4480f5469ba9e3e6faebbe2693ecce653c27878cda6839a5ece2"
     },
     {
       "path": "design/assets/outputs/contact-wide-2x.png",
-      "bytes": 2942,
-      "sha256": "de816dd69f675fbe788828227d510ee293b554a6a66ccb941122de2fca148725"
+      "bytes": 3105,
+      "sha256": "ecef36ed6b976f97ed7df47feab7c0c96852f01f748827d1cd0fd09550adb0fd"
     },
     {
       "path": "design/assets/outputs/contact-wide-3x.png",
-      "bytes": 4988,
-      "sha256": "7d3af5a0b7c0e98a8edec89408c10ff927556a569b7171a93723337f0d419752"
+      "bytes": 5171,
+      "sha256": "c5135558e1e6ac72f6cf9f8c8e27592af271830ff1789d41a6e66509d8fee243"
     },
     {
       "path": "design/assets/outputs/contact-wide-4x.png",
-      "bytes": 7536,
-      "sha256": "8078451a7e50d51352603db3af993d147c0b8274c552916588eed8a3b6aa386b"
+      "bytes": 7738,
+      "sha256": "3641cc969e18cd5162f128e905e3f508b42228ee7042fbfe182e1678b7e01e6d"
     },
     {
       "path": "design/assets/outputs/contact-compact-1x.png",
-      "bytes": 1181,
-      "sha256": "5b0da55689d9fdc202e99bac1e56d778914de59974f674f84862c073d7ba4904"
+      "bytes": 1284,
+      "sha256": "113ddb167762f6524e11348ad4fa1ae6c16982d32c7e12f098087310fba33fe6"
     },
     {
       "path": "design/assets/outputs/contact-compact-2x.png",
-      "bytes": 2796,
-      "sha256": "57e7748232b411bdbde746e8892e05c273e31148f0dec561d189e8270dab6559"
+      "bytes": 2947,
+      "sha256": "2e226deb91ea6feee5b28981f791fa3f2bae0a2d6ac637f007212c3e86900aaa"
     },
     {
       "path": "design/assets/outputs/contact-compact-3x.png",
-      "bytes": 4587,
-      "sha256": "1635a7bf26f2851e953a9df20e08707fa7e5543ca776488fa3e0525bc22135f8"
+      "bytes": 4767,
+      "sha256": "7e19aca59b395f79ce16f79010d9d07372e25d0f5a47d8a24717bffc62e3c6fa"
     },
     {
       "path": "design/assets/outputs/contact-compact-4x.png",
-      "bytes": 6905,
-      "sha256": "ef06b8a5a86521cb423a1383d1cedfc4753d2d026fe6ce866390341eeff9cf3f"
+      "bytes": 7092,
+      "sha256": "23190cf18396e934311818c0f5cb542bd38d264bf10057d5bdf799ec1a2cd026"
     },
     {
       "path": "design/assets/outputs/bayer-2.png",
       "bytes": 128,
-      "sha256": "e3901cd52d74cddbfe5bb5da1eeac95ad03ffb80e8601b8a53dc69db62f6cf12"
+      "sha256": "ad32dc07028db30d78dcea4765c0b8e3fa9d0e9f1c5c1264c60c9225f2740a74"
     },
     {
       "path": "design/assets/outputs/bayer-5.png",
       "bytes": 132,
-      "sha256": "8acfef8d492c8a1f448328b24140c5c7f4a30f0a3c6250f2e6067c5017a7879a"
+      "sha256": "f1f0f3f61497799637760ad8efbc2523b3f876eb01daa8d6332dc50b476b9c3d"
     },
     {
       "path": "design/assets/outputs/bayer-8.png",
       "bytes": 129,
-      "sha256": "52f77dec1b933dfa6db72ed20bac617b90ec2e4af7031ef0e2ac3d440c0056e6"
+      "sha256": "b881f188b9f4faf7ef7d0eeb7111130848146b09afccf82a3b5670f9e01f82e4"
     }
   ],
   "digitRuns": [
@@ -96,9 +96,9 @@
   "sunComponents": [36, 5, 5, 4, 4, 4, 4, 4, 4],
   "contrastOnPaper": {
     "ink": 11.461559113747937,
-    "cloud": 3.597884841117207,
-    "star": 4.027544234805034,
-    "moon": 3.144095933611892,
-    "sun": 5.5975878849161465
+    "cloud": 1.4665506308022331,
+    "star": 1.0038262490650538,
+    "moon": 1.9802864499782913,
+    "sun": 2.6845432728129413
   }
 }

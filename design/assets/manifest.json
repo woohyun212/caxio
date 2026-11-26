@@ -5,17 +5,17 @@
       "path": "apps/web/public/art/atlas-wide.png",
       "width": 420,
       "height": 186,
-      "bytes": 1173,
-      "sha256": "8d63f85177e299d095185da03901420c6e1278844d5f48427912d81d14f6e108",
+      "bytes": 1299,
+      "sha256": "bdca979e79083380cf8b2c83c88941a00a0f47a1b1f589ad7f3f67dfe416fc03",
       "allowedColors": [
         "#152B26",
         "#385747",
         "#829769",
         "#DCE7B1",
-        "#2A78B8",
-        "#3F7A0A",
-        "#B26E00",
-        "#A12B1C"
+        "#65C5FF",
+        "#FFE22E",
+        "#38B84E",
+        "#F05246"
       ],
       "alpha": [0, 255]
     },
@@ -24,16 +24,16 @@
       "path": "apps/web/public/art/atlas-compact.png",
       "width": 360,
       "height": 160,
-      "bytes": 955,
-      "sha256": "43b7d932a8c14480b8882ce43dcd5471fc112de40b73451d991d8da692ac4a79",
+      "bytes": 1050,
+      "sha256": "9344c81a14d9227aaa682fae15066a11dde0b4d45eaf4ba3fc2ed20c8a1e93d3",
       "allowedColors": [
         "#152B26",
         "#385747",
         "#DCE7B1",
-        "#2A78B8",
-        "#3F7A0A",
-        "#B26E00",
-        "#A12B1C"
+        "#65C5FF",
+        "#FFE22E",
+        "#38B84E",
+        "#F05246"
       ],
       "alpha": [0, 255]
     }

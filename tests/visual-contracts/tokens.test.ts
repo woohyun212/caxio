@@ -19,10 +19,10 @@ test("sRGB palette, tile dimensions and motion match the locked values", () => {
     pine: [56, 87, 71],
     sage: [130, 151, 105],
     paper: [220, 231, 177],
-    cloud: [42, 120, 184],
-    star: [63, 122, 10],
-    moon: [178, 110, 0],
-    sun: [161, 43, 28],
+    cloud: [101, 197, 255],
+    star: [255, 226, 46],
+    moon: [56, 184, 78],
+    sun: [240, 82, 70],
   });
   expect(motion).toEqual({
     selectionLambda: 25,

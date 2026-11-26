@@ -23,6 +23,9 @@ function light(channel: number) {
 function luma([r, g, b]: readonly [number, number, number]) {
   return light(r) * 0.2126 + light(g) * 0.7152 + light(b) * 0.0722;
 }
+function contrast(a: number, b: number) {
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+}
 const luminance = Object.values(palette).map(luma);
 class Raster {
   pixels: Uint8Array;
@@ -376,7 +379,11 @@ function rear(mark: Raster) {
 }
 
 type RawFiles = { digits: Buffer; suits: Buffer; back: Buffer };
-export function generate(raw: RawFiles, edits: readonly Edit[]) {
+export function generate(
+  raw: RawFiles,
+  edits: readonly Edit[],
+  outline = true,
+) {
   const boxes = glyphBoxes("wide");
   const groups = [
     ["digits", 5, 2, 9, boxes.number.h],
@@ -432,7 +439,15 @@ export function generate(raw: RawFiles, edits: readonly Edit[]) {
             Math.floor((w - (digits.length * 10 - 1)) / 2) + i * 10,
             boxes.number.y,
           );
-        c.blit(mask(`suits-${suit}`), boxes.suit.x, boxes.suit.y, 1, 5 + suit);
+        const glyph = mask(`suits-${suit}`);
+        const { x, y } = boxes.suit;
+        if (outline) {
+          c.blit(glyph, x - 1, y, 1, ink);
+          c.blit(glyph, x + 1, y, 1, ink);
+          c.blit(glyph, x, y - 1, 1, ink);
+          c.blit(glyph, x, y + 1, 1, ink);
+        }
+        c.blit(glyph, x, y, 1, 5 + suit);
         atlas.blit(c, rect.x, rect.y);
         contact.blit(c, 2 + (n - 1) * (w + 2), 2 + suit * (rect.h + 2));
       }
@@ -442,7 +457,8 @@ export function generate(raw: RawFiles, edits: readonly Edit[]) {
     if (mode === "wide") {
       // A diagnostic removes the hue cue entirely and keeps each silhouette at 1x.
       const mono = new Raster(contact.w, contact.h);
-      mono.pixels.set(contact.pixels.map((v) => (v >= 5 ? ink : v)));
+      const monoFill = outline ? sage : ink;
+      mono.pixels.set(contact.pixels.map((v) => (v >= 5 ? monoFill : v)));
       inspect("contact-shapes-1x", mono.png());
       const gray = luminance.map((v) => {
         const srgb =
@@ -495,7 +511,7 @@ export function generate(raw: RawFiles, edits: readonly Edit[]) {
     contrastOnPaper: Object.fromEntries(
       (["ink", "cloud", "star", "moon", "sun"] as const).map((key) => [
         key,
-        (luma(palette.paper) + 0.05) / (luma(palette[key]) + 0.05),
+        contrast(luma(palette.paper), luma(palette[key])),
       ]),
     ),
   };
