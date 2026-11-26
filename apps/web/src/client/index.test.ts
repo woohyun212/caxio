@@ -10,6 +10,7 @@ import {
   epoch,
   invalidAbandonmentExamples,
   lastPlaySequence,
+  leaveExamples,
   lostResume,
   newRoomSequence,
   nonHostAbandonmentLobby,
@@ -935,4 +936,48 @@ test("a revoked or disposed seat returns to entry and can join the result lobby 
       pending: null,
     });
   }
+});
+
+test("names ride on create and join, and leaving revokes the seat and returns to entry keeping mute", () => {
+  const { joins, after, rejoin } = leaveExamples.lobby;
+  const h = harness();
+  h.session.setMuted(true);
+  h.session.createRoom("철수");
+  const host = h.latest();
+  host.events.open();
+  expect(host.sent).toEqual([joins[0].command]);
+  for (const reply of joins[0].replies) host.frame(reply);
+  expect(h.saved.getItem(key)).not.toBeNull();
+  h.session.leaveRoom?.();
+  expect<unknown>(host.sent.at(-1)).toEqual(leaveExamples.command);
+  expect(host.close).toHaveBeenCalledTimes(1);
+  expect(h.saved.getItem(key)).toBeNull();
+  expect(h.session.getState()).toEqual({
+    connection: "DISCONNECTED",
+    seatId: null,
+    view: null,
+    revision: null,
+    timeAnchor: null,
+    selected: [],
+    pending: null,
+    errorCode: null,
+    credential: null,
+    muted: true,
+  });
+  host.frame(after[0].frame);
+  expect(h.session.getState().view).toBeNull();
+  h.session.joinRoom(roomCode, "철수");
+  const again = h.latest();
+  again.events.open();
+  expect(again.sent).toEqual([rejoin.command]);
+  for (const reply of rejoin.replies) again.frame(reply);
+  expect(h.session.getState().view).toEqual(rejoin.replies[1].view);
+  h.session.joinRoom(roomCode);
+  h.latest().events.open();
+  expect(h.latest().sent).toEqual([joins[1].command]);
+  // Unseated: nothing to revoke on the wire, but the socket still closes.
+  h.session.leaveRoom?.();
+  expect(h.latest().sent).toEqual([joins[1].command]);
+  expect(h.latest().close).toHaveBeenCalledTimes(1);
+  expect(h.session.getState().connection).toBe("DISCONNECTED");
 });
