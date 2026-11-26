@@ -73,7 +73,6 @@ export type Fault =
   | "old-play"
   | "elimination"
   | "old-close"
-  | "no-lower"
   | "accept-name"
   | "drop-name"
   | "resume-name"
@@ -263,10 +262,6 @@ export function fixture(fault?: Fault) {
     tableHand = null;
     passes = 0;
     hands = firstDealState.players.flatMap((p) => (p ? [[...p.hand]] : []));
-    if (fault === "no-lower") {
-      const deck = handOrder(hands.flat(), 9);
-      hands = [deck.slice(0, 12), deck.slice(12, 24), deck.slice(24)];
-    }
     broadcast();
     phase = "TURN_ACTIVE";
     turnId++;

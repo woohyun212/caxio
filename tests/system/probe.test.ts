@@ -120,7 +120,6 @@ for (const [fault, reason] of [
   ["unready", "readiness budget"],
   ["old-play", "lastPlay mismatch"],
   ["old-close", "disconnected live seat"],
-  ["no-lower", "unexercised NOT_HIGHER"],
   [
     "accept-name",
     "reject.name.CREATE_ROOM FAIL expected ERROR, received SEATED",

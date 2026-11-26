@@ -90,15 +90,11 @@ export function singleAction(
   table: readonly Tile[] | null,
   maxNumber: MaxNumber,
 ): Action {
-  const low = need(sorted[0], "empty acting hand");
-  if (!table) return { type: "PLAY", tiles: [low] };
+  if (!table)
+    return { type: "PLAY", tiles: [need(sorted[0], "empty acting hand")] };
   const previous = need(table[0], "empty table"),
     high = need(sorted.at(-1), "empty acting hand");
-  // Save the high tile if even our lowest beats the table.
-  if (
-    handOrder([low, previous], maxNumber)[0] === low &&
-    handOrder([previous, high], maxNumber)[0] === previous
-  )
+  if (handOrder([previous, high], maxNumber)[0] === previous)
     return { type: "PLAY", tiles: [high] };
   return { type: "PASS" };
 }

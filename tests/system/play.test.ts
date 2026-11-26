@@ -4,6 +4,17 @@ import { rules } from "../../packages/shared/src/index";
 import { generalCreate } from "./game";
 import { need, singleAction } from "./judges";
 
+test("a follower plays its highest single when every tile beats the table", () => {
+  const hand = [
+    { number: 4, suit: 0 },
+    { number: 2, suit: 0 },
+  ] as const;
+  expect(singleAction(hand, [{ number: 3, suit: 0 }], 9)).toEqual({
+    type: "PLAY",
+    tiles: [hand[1]],
+  });
+});
+
 test("three seats reach the configured last round across seeded games", () => {
   let worstLoss = 0,
     worstFirstTwo = 0,
