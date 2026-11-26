@@ -240,6 +240,42 @@ export function listenForSeatRecovery(
   return () => listeners.abort();
 }
 
+// Chrome keeps a page left by navigation in its back/forward cache with the WebSocket open, so the
+// server would keep the seat connected and never count its expiries toward abandonment. Close the
+// socket on pagehide, open none while hidden, and resume the seat on pageshow.
+export function pageSockets(openSocket: ClientDependencies["openSocket"]) {
+  let hidden = false;
+  let latest: ReturnType<typeof openSocket> | undefined;
+  return {
+    openSocket: ((events) => {
+      if (hidden) throw Error("The page is hidden");
+      latest = openSocket(events);
+      return latest;
+    }) satisfies typeof openSocket,
+    listen(windowTarget: EventTarget, session: ClientSession) {
+      const listeners = new AbortController();
+      const options = { signal: listeners.signal };
+      windowTarget.addEventListener(
+        "pagehide",
+        () => {
+          hidden = true;
+          latest?.close();
+        },
+        options,
+      );
+      windowTarget.addEventListener(
+        "pageshow",
+        () => {
+          hidden = false;
+          if (needsSeatRecovery(session.getState())) session.resume();
+        },
+        options,
+      );
+      return () => listeners.abort();
+    },
+  };
+}
+
 export function scheduleSeatRecovery(
   session: ClientSession,
   schedule: (delayMs: number, retry: () => void) => () => void = (
@@ -282,8 +318,9 @@ function bootstrap(element: HTMLElement) {
   document.body.style.margin = "0";
   document.body.style.backgroundColor = `rgb(${palette.ink.join(",")})`;
   const audio = createAudioEffects(() => new AudioContext());
+  const sockets = pageSockets(browserSocket(location.origin));
   const session = startSession(
-    browserSocket(location.origin),
+    sockets.openSocket,
     {
       // Access the storage getter inside the client's best-effort operations.
       getItem: (key) => window.sessionStorage.getItem(key),
@@ -294,6 +331,7 @@ function bootstrap(element: HTMLElement) {
   );
   const stopAudioUnlock = listenForAudioUnlock(window, audio);
   const stopRecoveryTimer = scheduleSeatRecovery(session);
+  const stopPageSockets = sockets.listen(window, session);
   const stopSeatRecovery = listenForSeatRecovery(
     window,
     document,
@@ -322,6 +360,7 @@ function bootstrap(element: HTMLElement) {
     stopAudioUnlock();
     stopSeatRecovery();
     stopRecoveryTimer();
+    stopPageSockets();
     root.unmount();
     session.dispose();
     audio.dispose();
