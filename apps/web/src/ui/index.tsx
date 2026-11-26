@@ -15,6 +15,7 @@ import { Action, EndScreen, Entry, Lobby, Panel } from "./screens";
 import {
   abandonmentNotice,
   clockText,
+  confirmsLeave,
   dealText,
   describe,
   locks,
@@ -25,6 +26,7 @@ import {
   type PanelKind,
   passedSeats,
   requestTurn,
+  seatName,
   seconds,
   tileName,
 } from "./state";
@@ -82,11 +84,14 @@ function Board({
     }
     if (focusPanel.current) {
       focusPanel.current = false;
-      root.current
-        ?.querySelector<HTMLButtonElement>(
+      // The leave confirmation starts on [계속하기] so a repeated key cannot leave by accident.
+      const panelRoot = root.current;
+      (
+        panelRoot?.querySelector<HTMLButtonElement>(".gc-panel .gc-keep") ??
+        panelRoot?.querySelector<HTMLButtonElement>(
           ".gc-panel button:not([aria-disabled=true])",
         )
-        ?.focus();
+      )?.focus();
     }
     const f = focused.current;
     if (!f || !root.current) return;
@@ -132,8 +137,8 @@ function Board({
   const caption =
     last && lastResult?.ok
       ? view.tableHand
-        ? `${seatLabel(last.seatId)} · ${describe(lastResult)}`
-        : `직전 제출 · ${seatLabel(last.seatId)} · ${describe(lastResult).split(" · ")[0]} · ${previous?.map(tileName).join(", ")}`
+        ? `${seatName(view, last.seatId)} · ${describe(lastResult)}`
+        : `직전 제출 · ${seatName(view, last.seatId)} · ${describe(lastResult).split(" · ")[0]} · ${previous?.map(tileName).join(", ")}`
       : "먼저 내세요";
   const turn = end
     ? view.round === view.maxRounds
@@ -141,14 +146,9 @@ function Board({
       : "생존자 3명 미만"
     : view.currentTurn === null
       ? `R${view.round} 정산`
-      : `${view.currentTurn === model.seatId ? "▶ 내 차례" : `${seatLabel(view.currentTurn)} 차례`} · ${view.tableHand ? "받기" : "선"}`;
-  const clear =
-    !view.tableHand &&
-    last &&
-    view.currentTurn !== null &&
-    view.currentTurn !== model.seatId
-      ? `새 선 · ${seatLabel(view.currentTurn)}`
-      : "";
+      : view.currentTurn === model.seatId
+        ? "▶ 내 차례"
+        : `▶ ${seatName(view, view.currentTurn)}`;
   const selfText =
     model.seatId === null
       ? ""
@@ -179,7 +179,7 @@ function Board({
       (reason) => reason && reasonId(reason) === "gc-extra",
     );
   const time = left === null ? "" : clockText(left);
-  const forecast = view.tableHand ? "초과 시 패스" : "초과 시 최저 1장";
+  const leave = () => props.leaveRoom?.();
   const action = (kind: "play" | "pass") =>
     requestTurn(model, result, kind, performance.now(), props[kind]);
   return (
@@ -217,23 +217,10 @@ function Board({
       >
         <span className="gc-brand">caxio</span>
         <span className="gc-turn" tabIndex={-1} ref={heading}>
-          {end ? "대국 종료" : clear || turn}
+          {end ? "대국 종료" : turn}
         </span>
-        <span
-          role="timer"
-          className="gc-time"
-          aria-label={time && `${time} · ${forecast}`}
-        >
+        <span role="timer" className="gc-time">
           {time}
-          {left !== null && left > 0 && (
-            <>
-              <span className="gc-long"> · {forecast}</span>
-              <span className="gc-short">
-                {" "}
-                · {view.tableHand ? "자동 패스" : "최저 1장 자동"}
-              </span>
-            </>
-          )}
         </span>
         <span className="gc-round">R{view.round}</span>
         <div className="gc-actions">
@@ -376,6 +363,7 @@ function Board({
           seatId={model.seatId}
           reason={turn}
           createRoom={props.createRoom}
+          leave={leave}
           openSettlement={(button) => {
             caller.current = button;
             open("settlement");
@@ -413,6 +401,11 @@ function Board({
             open={open}
             setPage={(n) => setShown({ kind: panel, page: n })}
             close={close}
+            leave={
+              panel === "menu" && confirmsLeave(view, model.seatId)
+                ? () => open("leave")
+                : leave
+            }
           />
         </div>
       )}
