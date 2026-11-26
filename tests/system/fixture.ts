@@ -5,6 +5,7 @@ import type {
   LastAction,
   LastPlay,
   LastSettlement,
+  OwnSettlement,
   SeatId,
   Slots,
   Tile,
@@ -14,6 +15,12 @@ import {
   phaseExamples,
   roomCode,
 } from "../../packages/shared/src/contracts/fixtures";
+import {
+  DEFAULT_MAX_ROUNDS,
+  DEFAULT_TURN_LIMIT_SECONDS,
+  type MaxRounds,
+  type TurnLimitSeconds,
+} from "../../packages/shared/src/contracts/settings";
 import {
   decodeRequest,
   decodeServerMessage,
@@ -34,8 +41,17 @@ export const assets = [atlases.wide, atlases.compact, ...fontFiles].map(
 );
 type Socket = ServerWebSocket<{ id: SeatId | null }>;
 export type Fault =
+  | "accept-limit"
+  | "accept-rounds"
+  | "default-settings"
+  | "missing-limit"
+  | "wrong-joiner"
+  | "short-deadline"
+  | "early-end"
+  | "early-elimination"
   | "replay"
   | "replaced-notice"
+  | "replaced-settings"
   | "wrong-error"
   | "extra-error"
   | "resume-token"
@@ -51,6 +67,8 @@ export type Fault =
   | "approve"
   | "silent"
   | "endless"
+  | "overlong-replay"
+  | "wrong-rounds"
   | "unready"
   | "old-play"
   | "elimination"
@@ -63,10 +81,9 @@ export type Fault =
   | "reuse-token"
   | "notify-leaver"
   | "accept-left";
-// Lets an invalid name through the decoder, as a server that never checks names would.
-function withoutName(raw: string | Buffer) {
+function withoutKey(raw: string | Buffer, key: string) {
   try {
-    const { name: _name, ...rest } = JSON.parse(String(raw));
+    const { [key]: _ignored, ...rest } = JSON.parse(String(raw));
     return JSON.stringify(rest);
   } catch {
     return raw;
@@ -84,7 +101,9 @@ export function fixture(fault?: Fault) {
     lastPlay: LastPlay | null = null,
     tableHand: readonly Tile[] | null = null,
     settlement: LastSettlement | null = null;
-  const maxRounds = fault === "endless" ? 1_000_000 : 1;
+  let maxRounds: MaxRounds = DEFAULT_MAX_ROUNDS,
+    turnLimitSeconds: TurnLimitSeconds = DEFAULT_TURN_LIMIT_SECONDS;
+  let details: OwnSettlement[] = [];
   const seats: SeatId[] = [],
     bound = new Map<SeatId, Socket>();
   let hands: Tile[][] = [];
@@ -101,6 +120,7 @@ export function fixture(fault?: Fault) {
     finalResumes: [] as SeatId[],
     replacedPlays: [] as Tile[],
     leads: [] as Tile[],
+    lowestAtLead: [] as Tile[],
   };
   const token = (id: SeatId) => need(tokens[id], "invalid seat");
   const hand = (id: SeatId) => need(hands[id], "invalid hand");
@@ -140,7 +160,19 @@ export function fixture(fault?: Fault) {
       activePlayers:
         phase === "LOBBY" ? [] : seats.filter((s) => chips[s] !== 0),
       round,
-      maxRounds,
+      maxRounds:
+        fault === "default-settings" || fault === "wrong-rounds"
+          ? DEFAULT_MAX_ROUNDS
+          : fault === "early-end" && phase === "GAME_OVER"
+            ? round
+            : Math.max(round, maxRounds),
+      turnLimitSeconds:
+        fault === "missing-limit"
+          ? undefined
+          : fault === "default-settings" ||
+              (fault === "wrong-joiner" && id === 1 && phase === "LOBBY")
+            ? DEFAULT_TURN_LIMIT_SECONDS
+            : turnLimitSeconds,
       consecutivePasses: passes,
       tableHand,
       lastPlay,
@@ -163,28 +195,11 @@ export function fixture(fault?: Fault) {
         turnId: null,
         ranking: [],
       };
-    const remaining =
-      phase === "ROUND_SETTLEMENT" || phase === "GAME_OVER"
-        ? ownHand.length
-        : id === 0
-          ? 0
-          : 12;
-    const twos =
-      phase === "ROUND_SETTLEMENT" || phase === "GAME_OVER"
-        ? ownHand.filter((t) => t.number === 2).length
-        : 0;
-    const details =
-      settlement && chips[id] !== 0
-        ? {
-            ownSettlement: {
-              round: settlement.round,
-              remaining,
-              twos,
-              effective: remaining * 2 ** twos,
-            },
-          }
-        : {};
-    const base = { ...common, ...details, maxNumber: 9 as const };
+    const base = {
+      ...common,
+      ownSettlement: details[id],
+      maxNumber: 9 as const,
+    };
     if (phase === "ROUND_START")
       return {
         ...base,
@@ -200,7 +215,12 @@ export function fixture(fault?: Fault) {
         phase,
         currentTurn: current,
         turnId,
-        deadline: now + 30000,
+        deadline:
+          now +
+          (fault === "short-deadline"
+            ? DEFAULT_TURN_LIMIT_SECONDS
+            : turnLimitSeconds) *
+            1000,
         ranking: [],
       };
     const paid = { ...base, currentTurn: null, turnId: null, deadline: null };
@@ -225,6 +245,8 @@ export function fixture(fault?: Fault) {
       ws.send(JSON.stringify({ ...frame, leak: token(1) }));
     else {
       send(ws, frame);
+      if (fault === "overlong-replay" && phase === "TURN_ACTIVE")
+        send(ws, { ...frame, serverNow: now - 1 });
       if (fault === "replay") send(ws, { ...frame, serverNow: now + 1 });
     }
   }
@@ -241,16 +263,6 @@ export function fixture(fault?: Fault) {
     tableHand = null;
     passes = 0;
     hands = firstDealState.players.flatMap((p) => (p ? [[...p.hand]] : []));
-    if (fault === "elimination") {
-      const leader = hand(0),
-        follower = hand(2);
-      const twos = leader.filter((t) => t.number === 2).slice(0, 3);
-      hands[0] = [
-        ...leader.filter((t) => !twos.includes(t)),
-        ...follower.slice(0, 3),
-      ];
-      hands[2] = [...twos, ...follower.slice(3)];
-    }
     if (fault === "no-lower") {
       const deck = handOrder(hands.flat(), 9);
       hands = [deck.slice(0, 12), deck.slice(12, 24), deck.slice(24)];
@@ -318,7 +330,13 @@ export function fixture(fault?: Fault) {
           } else send(ws, { type: "ERROR", code });
         };
         const cmd = decodeRequest(
-          fault === "accept-name" ? withoutName(raw) : raw,
+          fault === "accept-name"
+            ? withoutKey(raw, "name")
+            : fault === "accept-limit"
+              ? withoutKey(raw, "turnLimitSeconds")
+              : fault === "accept-rounds"
+                ? withoutKey(raw, "maxRounds")
+                : raw,
         );
         if (cmd === "INVALID_MESSAGE") return reject(cmd);
         if (
@@ -335,6 +353,11 @@ export function fixture(fault?: Fault) {
             (cmd.type !== "CREATE_ROOM" && cmd.roomCode !== roomCode)
           )
             return reject("RESUME_DENIED");
+          if (cmd.type === "CREATE_ROOM") {
+            turnLimitSeconds =
+              cmd.turnLimitSeconds ?? DEFAULT_TURN_LIMIT_SECONDS;
+            maxRounds = cmd.maxRounds ?? DEFAULT_MAX_ROUNDS;
+          }
           if (cmd.type !== "RESUME") {
             seats.push(id);
             names[id] =
@@ -345,6 +368,22 @@ export function fixture(fault?: Fault) {
             if (fault === "resume-name") names[id] = undefined;
             if (phase === "GAME_OVER") observations.finalResumes.push(id);
             else observations.activeResumes++;
+          }
+          if (
+            fault === "replaced-settings" &&
+            observations.activeResumes === 1
+          ) {
+            const old = bound.get(id);
+            if (old)
+              send(old, {
+                type: "SNAPSHOT",
+                revision,
+                serverNow: now,
+                view: {
+                  ...view(id),
+                  turnLimitSeconds: DEFAULT_TURN_LIMIT_SECONDS,
+                },
+              });
           }
           if (fault === "replaced-notice" && observations.activeResumes === 1) {
             const old = bound.get(id);
@@ -427,7 +466,12 @@ export function fixture(fault?: Fault) {
             next = need(cmd.tiles[0], "missing tile");
           if (previous && handOrder([next, previous], 9)[0] === next)
             return reject("NOT_HIGHER");
-          if (!previous) observations.leads.push(next);
+          if (!previous) {
+            observations.leads.push(next);
+            observations.lowestAtLead.push(
+              need(handOrder(hand(id), 9)[0], "empty leading hand"),
+            );
+          }
           hands[id] = hand(id).filter((t) => !sameTile(t, next));
           tableHand = cmd.tiles;
           lastPlay = { seatId: id, turnId, tiles: cmd.tiles };
@@ -441,22 +485,38 @@ export function fixture(fault?: Fault) {
         }
         lastAction = { seatId: id, turnId, type: cmd.type, automatic: false };
         if (hand(id).length === 0) {
-          // Fixed payouts for these deals: seat 2 pays twelve or goes OUT paying its remaining 64.
-          if (fault === "no-lower" || fault === "elimination")
+          const before = [...chips];
+          // Synthetic payments isolate phase, conservation and OUT-recipient checks.
+          if (
+            (fault === "elimination" && round === maxRounds) ||
+            fault === "early-elimination"
+          )
             chips.splice(0, 3, 140, 52, 0);
-          else if (fault !== "endless") chips.splice(0, 3, 88, 52, 52);
+          else
+            chips.splice(0, 3, 64 + round * 8, 64 - round * 4, 64 - round * 4);
+          details = hands.map((h) => {
+            const remaining = h.length,
+              twos = h.filter((t) => t.number === 2).length;
+            return { round, remaining, twos, effective: remaining * 2 ** twos };
+          });
           settlement = {
             round,
             results: seats.map((seatId, i) => ({
               seatId,
               rank: i + 1,
-              chipChange: need(chips[i], "missing chips") - 64,
+              chipChange:
+                need(chips[i], "missing chips") -
+                need(before[i], "missing prior chips"),
             })),
           };
-          if (fault === "chip-total") chips[0] = 89;
+          if (fault === "chip-total" && round === maxRounds) chips[0] = 89;
           phase = "ROUND_SETTLEMENT";
           broadcast();
-          if (round < maxRounds) deal();
+          if (
+            fault === "endless" ||
+            (round < maxRounds && fault !== "early-end" && !chips.includes(0))
+          )
+            deal();
           else {
             phase = "GAME_OVER";
             broadcast();

@@ -1,6 +1,10 @@
 import { isDeepStrictEqual as equal } from "node:util";
 import { handOrder } from "../../apps/web/src/visual/layout";
 import type { SeatId } from "../../packages/shared/src/contracts/domain";
+import {
+  DEFAULT_MAX_ROUNDS,
+  DEFAULT_TURN_LIMIT_SECONDS,
+} from "../../packages/shared/src/contracts/settings";
 import type {
   Command,
   ErrorCode,
@@ -19,8 +23,10 @@ import {
 import { type Client, SocketRoom } from "./game";
 import {
   checkAction,
+  checkDeadline,
   checkDeal,
   checkNames,
+  checkSettings,
   isPresence,
   judgeFrame,
   need,
@@ -33,7 +39,19 @@ import { cliOrigin } from "./probe";
 // Seat 1 stays unnamed. Seat 0 is vacated by abandonment and its replacement joins unnamed.
 const seatNames = ["철수", undefined, "Bob7", "ㅋㅋ"] as const;
 const naming = (name?: string) => (name === undefined ? {} : { name });
+export const abandonCreate = {
+  type: "CREATE_ROOM",
+  name: seatNames[0],
+  turnLimitSeconds: 15,
+  maxRounds: 10,
+} as const;
+export const bareCreate = { type: "CREATE_ROOM" } as const;
+const defaults = {
+  turnLimitSeconds: DEFAULT_TURN_LIMIT_SECONDS,
+  maxRounds: DEFAULT_MAX_ROUNDS,
+} as const;
 class AbandonRoom extends SocketRoom {
+  newRoomClient?: Client;
   live: Client[] = [];
   tokens = new Map<SeatId, string>();
   names = new Map<SeatId, string | undefined>();
@@ -74,7 +92,12 @@ class AbandonRoom extends SocketRoom {
       );
     }
     this.history.push({ owner, raw });
-    if (m.type === "SNAPSHOT") client.previous = m;
+    if (m.type === "SNAPSHOT") {
+      const settings = client === this.newRoomClient ? defaults : abandonCreate;
+      checkSettings(m.view, settings);
+      checkDeadline(m, settings.turnLimitSeconds, false);
+      client.previous = m;
+    }
     client.queue.push(m);
     client.wake?.();
   }
@@ -171,7 +194,7 @@ export async function runAbandonProbe(
       const name = seatNames[seat];
       const c = await game.bind(
         seat === 0
-          ? { type: "CREATE_ROOM", ...naming(name) }
+          ? abandonCreate
           : { type: "JOIN_ROOM", roomCode: code, ...naming(name) },
         seat,
       );
@@ -406,7 +429,8 @@ export async function runAbandonProbe(
     );
     pass("credential=denied");
     id = "abandon.leave.new-room";
-    leaver.send({ type: "CREATE_ROOM" });
+    game.newRoomClient = leaver;
+    leaver.send(bareCreate);
     const seated = await leaver.next("SEATED");
     requireCheck(seated.roomCode !== code, "leaver created no new room");
     const fresh = await leaver.next("SNAPSHOT");
@@ -416,6 +440,10 @@ export async function runAbandonProbe(
       "new room is not a fresh lobby",
     );
     game.idle();
+    pass();
+    id = "abandon.settings";
+    pass();
+    id = "abandon.deadline";
     pass();
     log(`summary PASS ${good} passed, 0 failed`);
     return 0;

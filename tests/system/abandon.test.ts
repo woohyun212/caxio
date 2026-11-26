@@ -55,12 +55,21 @@ for (const [rng, turnIds] of [
     expect(output).toMatch(/abandon\.leave PASS ok seat=[23] ranking=/);
     expect(output).toContain("abandon.leave.revoked PASS ok credential=denied");
     expect(output).toContain("abandon.leave.new-room PASS ok");
+    expect(output).toContain("abandon.settings PASS");
+    expect(output).toContain("abandon.deadline PASS");
     expect(output).toContain("summary PASS");
     for (const { command, expected } of observed)
       expect(command).toEqual(expected);
   });
 
 const faults = {
+  "lost-lobby-settings":
+    "abandon.third FAIL expected turnLimitSeconds=15 in LOBBY",
+  "lost-restart-settings":
+    "abandon.restart FAIL expected turnLimitSeconds=15 in ROUND_START",
+  "long-deadline": "abandon.first FAIL active deadline exceeds 15000 ms",
+  "wrong-defaults":
+    "abandon.leave.new-room FAIL expected turnLimitSeconds=30 in LOBBY",
   chips: "abandon.third FAIL abandonment ranking",
   leaver: "abandon.third FAIL abandonment ranking",
   tie: "abandon.third FAIL abandonment ranking",
