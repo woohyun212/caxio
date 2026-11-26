@@ -111,6 +111,7 @@ export const createClientSession: CreateClientSession = (deps) => {
     let establishing = true;
     let lastPlayId = 0;
     let lastSettlementRound = 0;
+    let lastOwnTurnId = 0;
     const connection: Connection = {
       lost() {
         if (current !== connection) return;
@@ -205,6 +206,14 @@ export const createClientSession: CreateClientSession = (deps) => {
           ) {
             lastSettlementRound = view.lastSettlement.round;
             events.push({ type: "SETTLEMENT", round: lastSettlementRound });
+          }
+          if (
+            view.phase === "TURN_ACTIVE" &&
+            view.currentTurn === state.seatId &&
+            view.turnId > lastOwnTurnId
+          ) {
+            lastOwnTurnId = view.turnId;
+            events.push({ type: "MY_TURN", turnId: view.turnId });
           }
           let pending = state.pending;
           if (

@@ -24,6 +24,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import viteConfig from "../vite.config";
 import { createClientSession } from "./client";
 import type {
+  ClientEffect,
   ClientSession,
   CreateClientSession,
   TableProps,
@@ -97,7 +98,11 @@ function harness(
     if (opened?.type !== "return") throw Error(`Missing socket ${index}`);
     return opened.value;
   }
-  const audio = { play: mock(), unlock: mock(), dispose: mock() };
+  const audio = {
+    play: mock((_events: readonly ClientEffect[]) => {}),
+    unlock: mock(),
+    dispose: mock(),
+  };
   const resume = mock();
   const create: CreateClientSession = (deps) => {
     const session = createClientSession(deps);
@@ -183,9 +188,13 @@ test("tab startup resumes once, derives both socket schemes and delivers only au
       h.socket().receive(frame);
       h.socket().receive(frame);
     }
-    expect(h.audio.play.mock.calls).toEqual(
-      restore ? [] : [[effectBatches[3]]],
+    const batches: (readonly ClientEffect[])[] = h.audio.play.mock.calls.map(
+      ([batch]) => batch.filter((event) => event.type !== "MY_TURN"),
     );
+    expect(batches.filter((batch) => batch.length)).toEqual(
+      restore ? [] : [effectBatches[3]],
+    );
+    if (restore) expect(h.audio.play).not.toHaveBeenCalled();
   }
 });
 

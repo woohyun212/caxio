@@ -438,6 +438,14 @@ test("reused seats restore the dealt hand and revoked credentials return to entr
   }
 });
 
+function playAndSettlementBatches(
+  calls: readonly [readonly ClientEffect[]][],
+): (readonly ClientEffect[])[] {
+  return calls
+    .map(([batch]) => batch.filter((event) => event.type !== "MY_TURN"))
+    .filter((batch) => batch.length > 0);
+}
+
 test("effect batches follow accepted identifiers and each connection starts silently", () => {
   const h = harness();
   const [first, , , paid] = lastPlaySequence.continuing;
@@ -445,7 +453,9 @@ test("effect batches follow accepted identifiers and each connection starts sile
   lastPlaySequence.continuing.forEach((snapshot, i) => {
     if (i > 0) s.frame(snapshot);
     const expected = required(effectBatches[i]);
-    expect(h.effects.mock.calls).toEqual(expected.length ? [[expected]] : []);
+    expect(playAndSettlementBatches(h.effects.mock.calls)).toEqual(
+      expected.length ? [expected] : [],
+    );
     h.effects.mockClear();
     const accepted = h.session.getState();
     s.frame(snapshot);
@@ -463,6 +473,101 @@ test("effect batches follow accepted identifiers and each connection starts sile
   retry.frame(paid);
   expect(other.session.getState().revision).toBe(paid.revision);
   expect(other.effects).not.toHaveBeenCalled();
+});
+
+test("each replay announces only newly observed own active turns after the first snapshot", () => {
+  for (const [seated, frames] of [
+    [newRoomSequence.previous, lastPlaySequence.continuing],
+    [abandonmentRestart.observer, abandonmentRestart.observed],
+  ] as const) {
+    const h = harness();
+    const socket = h.enter(frames[0], seated);
+    const seen = new Set<number>();
+    for (const [index, frame] of frames.entries()) {
+      if (index > 0) socket.frame(frame);
+      const expected: Extract<ClientEffect, { type: "MY_TURN" }>[] = [];
+      if (
+        frame.type === "SNAPSHOT" &&
+        frame.view.phase === "TURN_ACTIVE" &&
+        frame.view.currentTurn === seated.seatId
+      ) {
+        const { turnId } = frame.view;
+        if (index > 0 && !seen.has(turnId))
+          expected.push({ type: "MY_TURN", turnId });
+        seen.add(turnId);
+      }
+      expect(
+        h.effects.mock.calls.flatMap(([batch]) =>
+          batch.filter((event) => event.type === "MY_TURN"),
+        ),
+      ).toEqual(expected);
+      h.effects.mockClear();
+    }
+  }
+});
+
+test("muted own turns and the first own turn on a resumed socket stay silent across presence updates", () => {
+  const [before, , own] = lastPlaySequence.continuing;
+  const h = harness();
+  const socket = h.enter(before);
+  h.session.setMuted(true);
+  socket.frame(own);
+  expect(h.session.getState().view).toEqual(own.view);
+  h.session.setMuted(false);
+  socket.frame({ ...own, revision: own.revision + 1 });
+  expect(h.effects).not.toHaveBeenCalled();
+
+  const retry = harness();
+  retry.enter(before).events.close();
+  const resumed = retry.latest();
+  resumed.events.open();
+  expect(resumed.sent[0]?.type).toBe("RESUME");
+  resumed.frame(newRoomSequence.previous);
+  resumed.frame(own);
+  expect(retry.session.getState().view).toEqual(own.view);
+  resumed.frame({ ...own, revision: own.revision + 1 });
+  expect(retry.effects).not.toHaveBeenCalled();
+});
+
+test("an opponent's play and any newly observed settlement precede my new turn in one callback", () => {
+  const [played, , , paid] = lastPlaySequence.continuing;
+  if (played.view.phase !== "TURN_ACTIVE" || !played.view.ownHand)
+    throw Error("expected an active player's hand");
+  const settlement = required(paid.view.lastSettlement);
+  for (const newSettlement of [false, true]) {
+    const h = harness();
+    const baseline = phaseExamples[2];
+    const socket = h.enter(baseline);
+    const view = {
+      ...played.view,
+      currentTurn: lastPlaySequence.recipient,
+      lastPlay: { ...required(played.view.lastPlay), seatId: 2 },
+      lastAction: { ...required(played.view.lastAction), seatId: 2 },
+      ...(newSettlement
+        ? {
+            round: 2,
+            lastSettlement: settlement,
+            ownSettlement: paid.view.ownSettlement,
+          }
+        : {}),
+    } satisfies Snapshot["view"];
+    for (const revision of [baseline.revision, baseline.revision - 1]) {
+      socket.frame({ ...played, view, revision });
+      expect(h.effects).not.toHaveBeenCalled();
+    }
+    socket.frame({ ...played, view });
+    expect(h.session.getState().view).toEqual(view);
+    const expected: ClientEffect[] = [
+      { type: "PLAY", turnId: view.lastPlay.turnId },
+    ];
+    if (newSettlement)
+      expected.push({
+        type: "SETTLEMENT",
+        round: settlement.round,
+      });
+    expected.push({ type: "MY_TURN", turnId: view.turnId });
+    expect(h.effects.mock.calls).toEqual([[expected]]);
+  }
 });
 
 test("OUT removes both private fields and selection; spectator restore rejects a survivor frame", () => {
@@ -801,9 +906,10 @@ test("restart replay preserves every accepted frame and emits exactly the per-ga
       if (i !== 0) socket.frame(frame);
       const state = h.session.getState();
       const batch = required(effectBatches[i]);
-      expect(h.effects.mock.calls).toEqual(
-        muted || !batch.length ? [] : [[batch]],
+      expect(playAndSettlementBatches(h.effects.mock.calls)).toEqual(
+        muted || !batch.length ? [] : [batch],
       );
+      if (muted) expect(h.effects).not.toHaveBeenCalled();
       if (frame.type === "ERROR") {
         expect(state.view).toBe(before.view);
         expect(state.revision).toBe(before.revision);
