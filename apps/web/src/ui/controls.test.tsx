@@ -853,7 +853,7 @@ test("wide HUD and command cells occupy their exact horizontal intervals", () =>
   expect(cells(".gc-wide .gc-command", [0, 2, 4, 6])).toEqual([
     [2, 97],
     [100, 140],
-    [243, 101],
+    [243, 99],
     [346, 68],
   ]);
 });
@@ -933,7 +933,7 @@ test("compact lobby stacks the start reason and button and offsets Galmuri ink o
     expect(tightRows).toContain(row);
 });
 
-test("compact status, command, end and page buttons use adjacent 2px action groups", () => {
+test("status, command, end and page buttons form action groups 4 logical px (wide) or 8 CSS px (compact) apart", () => {
   const groups = (html: string) =>
     Array.from(html.matchAll(/<div class="gc-actions">(.*?)<\/div>/g), (m) =>
       Array.from(
@@ -959,7 +959,8 @@ test("compact status, command, end and page buttons use adjacent 2px action grou
     />,
   );
   expect(groups(panel)).toEqual([["이전", "다음", "닫기"]]);
-  expect(styleRule(".gc-actions")).toContain("gap: 2px");
+  expect(styleRule(".gc-actions")).toContain("gap: 4px");
+  expect(styleRule(".gc-compact .gc-actions")).toContain("gap: 8px");
   expect(styleRule(".gc-actions")).toContain("justify-content: flex-end");
 });
 test("create room uses the primary ink button on entry and final ranking", () => {
@@ -1675,11 +1676,23 @@ test("entry, lobby, panel, end and compact rows keep space between adjacent bloc
     [".gc-compact .gc-entry > form", "margin-top: 8px"],
     [".gc-lobby > * + *", "margin-top: 8px"],
     [".gc-wide .gc-room-code", "gap: 8px"],
-    ['.gc-panel[data-panel="menu"]', "gap: 2px 8px"],
-    ['.gc-wide .gc-panel:not([data-panel="settlement"])', "padding-block: 2px"],
+    ['.gc-panel[data-panel="menu"]', "gap: 8px"],
+    [".gc-wide .gc-panel", "padding-block: 4px"],
+    [
+      '.gc-wide .gc-panel[data-panel="rules"]',
+      "grid-template-columns: 1fr auto",
+    ],
+    ['.gc-wide [data-panel="rules"] > .gc-actions', "grid-area: 1 / 2"],
+    [".gc-wide .gc-self:only-child", "padding-inline: 4px"],
+    [".gc-end > strong", "margin-bottom: 4px"],
+    [".gc-compact .gc-lobby-seats > li", "margin: 4px 2px"],
+    [".gc-compact .gc-panel", "padding: 8px"],
+    [".gc-compact .gc-status", "row-gap: 4px"],
+    [".gc-compact .gc-command", "padding-top: 8px"],
+    [".gc-compact .gc-command", "row-gap: 8px"],
     [".gc-wide .gc-end", "margin-block: 4px"],
     [".gc-end > .gc-actions", "margin-top: 8px"],
-    [".gc-compact :is(.gc-status, .gc-command)", "padding-inline: 4px"],
+    [".gc-compact :is(.gc-status, .gc-command)", "padding-inline: 8px"],
     [".gc-compact .gc-table", "margin-block: 4px"],
   ] as const)
     expect(styleRule(selector)).toContain(declaration);

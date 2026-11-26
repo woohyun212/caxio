@@ -234,11 +234,15 @@
   overflow-wrap: anywhere;
   word-break: keep-all;
 }
+/* Neighbouring buttons sit 4 logical px apart in wide and 8 CSS px in compact. */
 .gc-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 2px;
+  gap: 4px;
   max-width: 100%;
+}
+.gc-compact .gc-actions {
+  gap: 8px;
 }
 .gc-wide :where(.gc-status, .gc-command) > .gc-actions {
   display: contents;
@@ -413,7 +417,7 @@
 }
 .gc-wide .gc-panel {
   align-self: start;
-  padding-block: 0;
+  padding-block: 4px;
   width: 100%;
   line-height: 12px;
 }
@@ -446,7 +450,7 @@
 .gc-wide .gc-command {
   display: grid;
   grid-template-rows: var(--gc-command);
-  grid-template-columns: 97px 1px 140px 3px 101px 2px 68px;
+  grid-template-columns: 97px 1px 140px 3px 99px 4px 68px;
   padding-left: 2px;
   height: var(--gc-command);
   line-height: 12px;
@@ -462,7 +466,7 @@
   align-content: center;
   grid-column: 1 / -1;
   text-align: start;
-  padding-inline: 1px;
+  padding-inline: 4px;
 }
 .gc-wide .gc-selected {
   grid-column: 3;
@@ -491,6 +495,9 @@
   margin-top: 8px;
   justify-content: center;
 }
+.gc-end > strong {
+  margin-bottom: 4px;
+}
 /* Keep seven 48px slots and six 2px gaps while a 360px viewport sheds its scrollbar. */
 :root:has(.gc-compact) {
   scrollbar-width: thin;
@@ -516,7 +523,7 @@
 }
 .gc-compact .gc-lobby-seats > li {
   min-height: 44px;
-  margin: 2px;
+  margin: 4px 2px;
 }
 /* The code and its input share a line; copy and leave wrap together below them. */
 .gc-compact .gc-room-code {
@@ -542,6 +549,7 @@
   flex-wrap: wrap;
   justify-content: flex-start;
   align-content: start;
+  row-gap: 4px;
 }
 .gc-compact .gc-brand,
 .gc-compact .gc-time {
@@ -609,7 +617,7 @@
 }
 /* Status and command text stay off the screen edges and the buttons. */
 .gc-compact :is(.gc-status, .gc-command) {
-  padding-inline: 4px;
+  padding-inline: 8px;
   column-gap: 8px;
 }
 .gc-compact .gc-hand {
@@ -627,6 +635,9 @@
   display: flex;
   justify-content: flex-start;
   flex-wrap: wrap;
+  /* Message, selection and command rows sit 8px apart. */
+  padding-top: 8px;
+  row-gap: 8px;
 }
 .gc-compact :where(.gc-status, .gc-command) > .gc-actions {
   margin-left: auto;
@@ -636,6 +647,7 @@
 }
 .gc-compact .gc-panel {
   justify-self: stretch;
+  padding: 8px;
 }
 .gc-compact .gc-end {
   padding: 8px;
@@ -713,7 +725,6 @@
 }
 .gc-compact .gc-panel {
   max-height: none;
-  padding: 2px 4px;
 }
 @media (min-width: 648px) {
   .gc-compact .gc-table,
@@ -815,13 +826,10 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 2px 8px;
+  gap: 8px;
 }
 .gc-panel:is([data-panel="rules"], [data-panel="leave"]) > .gc-actions {
-  margin-top: 2px;
-}
-.gc-wide .gc-panel:not([data-panel="settlement"]) {
-  padding-block: 2px;
+  margin-top: 4px;
 }
 /* Compact entry: labels above their inputs, the code input beside its button. */
 .gc-compact .gc-entry label {
@@ -834,4 +842,18 @@
 }
 .gc-compact .gc-entry > form {
   margin-top: 8px;
+}
+/* Wide rule pages put the title beside their buttons, like settlement, so page 3 fits the felt at k=2. */
+.gc-wide .gc-panel[data-panel="rules"] {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  row-gap: 4px;
+}
+.gc-wide [data-panel="rules"] > .gc-actions {
+  grid-area: 1 / 2;
+  margin-top: 0;
+}
+.gc-wide [data-panel="rules"] > div:not(.gc-actions) {
+  grid-column: 1 / -1;
 }
