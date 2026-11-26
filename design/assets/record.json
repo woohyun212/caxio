@@ -3,82 +3,82 @@
     {
       "path": "design/assets/outputs/mask-digits.png",
       "bytes": 193,
-      "sha256": "9fb87e8a2ec02241a0456e8f455f54995df08fcf2d1f0e277883903bb57c5a91"
+      "sha256": "8b5816bcfde33c0702c5e92bd776fbb50bfa0269302b8b2aeda8cd921121ea37"
     },
     {
       "path": "design/assets/outputs/mask-suits.png",
       "bytes": 225,
-      "sha256": "5d4333444f11e47c5c593d3152916958c18c580d9c0a9c0807efbb6ccc8ebd1f"
+      "sha256": "89bf5d43156eb9853c9c344c6785176b1e672560cedf91309a0c07c1339274e2"
     },
     {
       "path": "design/assets/outputs/mask-back.png",
       "bytes": 157,
-      "sha256": "7c936f323ae2a41e07582287ea65d8b09030628002bd28362d50f76c7d74b0c9"
+      "sha256": "25df6143ceeccaf713d442df229546f8fab349d3bc2777a89071ea848055fa6a"
     },
     {
       "path": "design/assets/outputs/contact-shapes-1x.png",
       "bytes": 1216,
-      "sha256": "e7ecfd019d6c5b0b38ca1c8fd7c612813489bf3917487a1e0262e1390c22c5ad"
+      "sha256": "17968c6bdeb5f365b1dff8fb481c5664b8c36642b0fb9addf0a91fdd70981187"
     },
     {
       "path": "design/assets/outputs/contact-gray-1x.png",
       "bytes": 1251,
-      "sha256": "7160b101c8a0c3424512fdb6561d14bffd1e6bbab964bd830f217a1d0773a06a"
+      "sha256": "326a8852c7887759b8f047b98bfba9b780c8bf485243afe496c16f31b37152c8"
     },
     {
       "path": "design/assets/outputs/contact-wide-1x.png",
       "bytes": 1251,
-      "sha256": "0423274f86644d7a89f895f06c60f1966de377e5be3faf5989c20998f5804b41"
+      "sha256": "17df434dc7b94850fee60a4d1cea2cee182c0b20ab000383d2397c32489ab125"
     },
     {
       "path": "design/assets/outputs/contact-wide-2x.png",
       "bytes": 2942,
-      "sha256": "3bcb39579bccba30c68add7368f3682836aef32bffa1735b127baad6f482940d"
+      "sha256": "bfdf166a9bb9598a49f4fbb5e3caa814e39cb8913e9eedb0da4a2da1bdffffbc"
     },
     {
       "path": "design/assets/outputs/contact-wide-3x.png",
       "bytes": 4988,
-      "sha256": "76300daf77f8d75431ef570b40266ad5d83d1a7c4b0df950a9013f951c95ad10"
+      "sha256": "e7ee87f6951cf5dddb920057a9c744fef6c6aca4fc7012c4aa3c5ad81302ddeb"
     },
     {
       "path": "design/assets/outputs/contact-wide-4x.png",
       "bytes": 7536,
-      "sha256": "b2b03cb4c8aa77ae891e77c900d2f215f0c339c491e7704448620133c5062807"
+      "sha256": "55ee19c01474a22730a85216d8c07ee59b2031c6b8477d01327b35f7ee1b817f"
     },
     {
       "path": "design/assets/outputs/contact-compact-1x.png",
       "bytes": 1181,
-      "sha256": "eeaef6afea262639934f9b5c7a7cbde51516af267ecfd6507cee4ca9b4028326"
+      "sha256": "ef8674850d980a57d5fe81005637966c14f1496e4d8df6e6e5d36c4b674b551b"
     },
     {
       "path": "design/assets/outputs/contact-compact-2x.png",
       "bytes": 2796,
-      "sha256": "ef1a436559487dc07abc3b18f3abea3b56843e412a8e46de72f65caf5ceae0c2"
+      "sha256": "f475147c0ba0322907d56c3189eceb38617a10cf9d8e904860a47c39dd6e5b67"
     },
     {
       "path": "design/assets/outputs/contact-compact-3x.png",
       "bytes": 4587,
-      "sha256": "0054eb8ebfdab8f3f78751518ce7582e144fa29e17b2ea4e7ecab9f30d47e3fd"
+      "sha256": "441dc81e8d4e8fcde8d3298e566047c615aba954f0a3e7827055650d1ec3f8ac"
     },
     {
       "path": "design/assets/outputs/contact-compact-4x.png",
       "bytes": 6905,
-      "sha256": "c8e602a2bf09ea393e2a6f1f6fb34d1a3962e1507bb6c9f86caf00ca6d19eb78"
+      "sha256": "5dd96f36ea1afa8bc82c6483f8225ae4214581d1596f3368437ecc0e38c27c5b"
     },
     {
       "path": "design/assets/outputs/bayer-2.png",
       "bytes": 128,
-      "sha256": "33b018a68a289d66f71bc796906a716d908c91eccdeb6e605811cd94499a7111"
+      "sha256": "0bebe8c55d853ef47bf160c61241ab981cd77517e6e36c0fb161613f2069a8e0"
     },
     {
       "path": "design/assets/outputs/bayer-5.png",
       "bytes": 132,
-      "sha256": "9f097b3b295800df79020603aa21421373167a92470ea880f8477ded2ea72a76"
+      "sha256": "e87e53ed5b1c257220978812dc559032580362b237e20136ecb08d06bbbd3c6e"
     },
     {
       "path": "design/assets/outputs/bayer-8.png",
       "bytes": 129,
-      "sha256": "a5d038b83148aa5f23da705c3e8787753e8206866c408fd2765237d2933a7ad0"
+      "sha256": "b8de5e35e12847af4edb7a8eb8374b0dcb5de7fe300c1576de8a3c1fb3aa486f"
     }
   ],
   "digitRuns": [
@@ -97,7 +97,7 @@
   "contrastOnPaper": {
     "ink": 11.461559113747937,
     "cloud": 3.597884841117207,
-    "star": 7.637708914338343,
+    "star": 6.766703043866993,
     "moon": 3.144095933611892,
     "sun": 5.5975878849161465
   }

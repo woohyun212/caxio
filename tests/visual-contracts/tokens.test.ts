@@ -20,7 +20,7 @@ test("sRGB palette, tile dimensions and motion match the locked values", () => {
     sage: [130, 151, 105],
     paper: [220, 231, 177],
     cloud: [42, 120, 184],
-    star: [87, 48, 122],
+    star: [44, 84, 12],
     moon: [178, 110, 0],
     sun: [161, 43, 28],
   });

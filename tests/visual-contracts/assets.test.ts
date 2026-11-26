@@ -44,7 +44,7 @@ test("sixty face addresses per atlas match the PNG grid and exclude the shared b
 test("atlas metadata, cell palettes, glyph boxes and font identities are frozen", () => {
   const ramp = ["#152B26", "#385747", "#829769", "#DCE7B1"];
   const faceBase = ["#152B26", "#385747", "#DCE7B1"];
-  const inks = ["#2A78B8", "#57307A", "#B26E00", "#A12B1C"];
+  const inks = ["#2A78B8", "#2C540C", "#B26E00", "#A12B1C"];
   expect(backColors).toEqual(ramp);
   expect(atlases.wide).toEqual({
     url: "/art/atlas-wide.png",

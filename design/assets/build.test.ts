@@ -139,14 +139,39 @@ test("product input record matches the converter, tests and provenance", () => {
   expect(record.trimEnd().split("\n").sort()).toEqual(expected.sort());
 });
 
-test("in-memory regeneration matches each committed output and its published Q2 checksum", () => {
+// The star ink is the only change since Q2. Every PNG keeps the star (or, in the grey
+// sheet, its grey) at PLTE entry 6; restoring Q2's #57307A (grey #434343) restores Q2's bytes.
+function withQ2Star(png: Buffer, grey: boolean) {
+  const copy = Buffer.from(png);
+  for (let pos = 8; pos < copy.length; ) {
+    const length = copy.readUInt32BE(pos);
+    if (copy.toString("ascii", pos + 4, pos + 8) === "PLTE") {
+      const entry = pos + 8 + 6 * 3;
+      expect([...copy.subarray(entry, entry + 3)]).toEqual(
+        grey ? [0x4a, 0x4a, 0x4a] : [...palette.star],
+      );
+      copy.set(grey ? [0x43, 0x43, 0x43] : [0x57, 0x30, 0x7a], entry);
+      copy.writeUInt32BE(
+        crc32(copy.subarray(pos + 4, pos + 8 + length)),
+        pos + 8 + length,
+      );
+    }
+    pos += length + 12;
+  }
+  return copy;
+}
+
+test("in-memory regeneration matches each committed output and, with Q2's star ink, its published Q2 checksum", () => {
   assert.deepEqual(fresh.manifest, manifest);
   expect(fresh.record).toEqual(record);
   const published = checksums("hashes.sha256");
   expect(fresh.outputs.size).toBe(18);
   for (const [path, data] of fresh.outputs) {
     expect(data.equals(readFileSync(join(root, path)))).toBe(true);
-    assert.equal(sha256(data), published.get(`outputs/${basename(path)}`));
+    assert.equal(
+      sha256(withQ2Star(data, path.endsWith("contact-gray-1x.png"))),
+      published.get(`outputs/${basename(path)}`),
+    );
   }
   expect(manifest.cells).toHaveLength(15);
   for (const { id, foreground, overrideCount } of manifest.cells) {
