@@ -9,6 +9,7 @@ import {
   abandonmentLobbyExamples,
   abandonmentRestart,
   abandonmentResults,
+  configuredRoom,
   deadlines,
   dealExamples,
   epoch,
@@ -16,6 +17,7 @@ import {
   lastPlaySequence,
   leaveExamples,
   namedViews,
+  phaseExamples,
   playerNameExamples,
   previewExamples,
   previewRejectionOrder,
@@ -41,12 +43,13 @@ import { atlases, fontFiles, tileRect } from "../visual/assets";
 import { handOrder, layout } from "../visual/layout";
 import { frame, palette } from "../visual/tokens";
 import { GameControls } from "./index";
-import { Action, EndScreen, Panel } from "./screens";
+import { Action, EndScreen, Entry, Panel } from "./screens";
 import {
   abandonmentNotice,
   automaticSettlement,
   clockText,
   confirmsLeave,
+  copyRoomLink,
   describe,
   enterCode,
   entryName,
@@ -313,7 +316,13 @@ test("OUT snapshots render public seats and chips without private controls or se
     const html = render(
       props(snap.view, { seatId: spectatorExamples.recipient, selected: [] }),
     );
-    expect(html).toContain("탈락 · 관전 중");
+    expect(html).toContain(
+      snap.view.phase === "GAME_OVER"
+        ? "탈락"
+        : snap.view.phase === "ROUND_SETTLEMENT"
+          ? "탈락 · 다음 판 관전"
+          : "탈락 · 관전 중",
+    );
     expect(html).toContain("1번");
     expect(html).toContain("칩");
     expect(html).toContain('class="gc-center"');
@@ -421,15 +430,12 @@ test("settlement opens through the next deal and first lead remains playable", (
   const html = render(props(paid.view));
   expect(html).toContain('aria-label="직전 정산"');
   for (const text of [
-    "1위 1번 +3칩 → 67칩",
-    "2위 2번 0칩 → 64칩",
-    "3위 3번 −3칩 → 61칩",
+    "<u>1위</u> 1번(나) 0장 +3칩 67칩",
+    "2위 2번 1장 0칩 64칩",
+    "3위 3번 2장 −3칩 61칩",
   ])
     expect(html).toContain(text);
-  const detail = a4Settlement.details[0];
-  expect(html).toContain(
-    `남은 ${detail.remaining}장 × 1배(2가 0장) = ${detail.effective}`,
-  );
+  expect(html).not.toContain("배(2가");
   const nextTurn = {
     ...next.view,
     phase: "TURN_ACTIVE",
@@ -569,7 +575,7 @@ test("entry normalizes codes and lobby follows host transfer and start permissio
   expect(guest).toContain("방장의 시작을 기다려 주세요");
   expect(guest).not.toContain(">시작<");
 });
-test("end reason prioritizes the last round, preserves tied ranks and creates a new room", () => {
+test("end reason prioritizes the last round, preserves tied ranks and opens the entry form", () => {
   for (const { snapshot, reason } of gameOverExamples)
     expect(render(props(snapshot.view))).toContain(
       reason === "LAST_ROUND" ? "마지막 라운드 종료" : "생존자 3명 미만",
@@ -583,7 +589,7 @@ test("end reason prioritizes the last round, preserves tied ranks and creates a 
     end = EndScreen({
       view: v,
       seatId: 0,
-      createRoom,
+      openEntry: createRoom,
       leave,
       reason: "마지막 라운드 종료",
       openSettlement: noop,
@@ -717,7 +723,7 @@ test("deal, mute state, three rule pages and keyboard focus fallback are availab
   for (const { view } of dealExamples) {
     const html = render(props(view, { muted: true }));
     expect(html).toContain(
-      `R1 · 숫자 1~${view.maxNumber} · ${view.ownHand?.length}장씩 · 선 1번(구름 3)`,
+      `R1/5 · 숫자 1~${view.maxNumber} · ${view.ownHand?.length}장씩 · 선 1번(구름 3)`,
     );
     expect(html).toContain('aria-pressed="true">무음');
   }
@@ -745,7 +751,7 @@ test("deal, mute state, three rule pages and keyboard focus fallback are availab
   expect(nextFocusSlot(["a"], 0, [])).toBeNull();
 });
 
-test("private settlement arithmetic and paged public OUT rows stay separate", () => {
+test("paged public rows omit private settlement arithmetic", () => {
   const survivor = spectatorExamples.survivor.frame.view;
   if (!survivor.ownHand) throw Error("missing private hand");
   const html = render(
@@ -757,7 +763,7 @@ test("private settlement arithmetic and paged public OUT rows stay separate", ()
       { seatId: 1 },
     ),
   );
-  expect(html).toContain("남은 3장 × 4배(2가 2장) = 12");
+  expect(html).not.toContain("배(2가");
   const pages = [0, 1].map((page) =>
     renderToStaticMarkup(
       <Panel
@@ -773,7 +779,7 @@ test("private settlement arithmetic and paged public OUT rows stay separate", ()
   expect(pages[0]).toContain("1위");
   expect(pages[0]).not.toContain("4위");
   expect(pages[1]).toContain("4위");
-  expect(pages[1]).toContain("탈락 · 다음 판 관전");
+  expect(pages[1]).not.toContain("탈락 · 다음 판 관전");
   for (const page of pages) expect(page).not.toContain("배(2가");
 });
 test("a click at the deadline cannot send an action rendered enabled earlier", () => {
@@ -1119,7 +1125,9 @@ test("disconnected entry without a credential is silent and unlocked", () => {
   );
   expect(html).not.toContain("aria-disabled");
   expect(html).toMatch(/aria-live="polite"[^>]*><\/div>/);
-  expect(html.replace(/<[^>]+>/g, "")).toBe("caxio이름방 만들기방 코드입장");
+  expect(html.replace(/<[^>]+>/g, "")).toBe(
+    "caxio이름턴 제한시간 15초30초45초60초90초최대 라운드 35710방 만들기방 코드입장",
+  );
 });
 
 test("entry announces a pending request once and describes its lock alongside an error", () => {
@@ -1137,14 +1145,14 @@ test("entry announces a pending request once and describes its lock alongside an
     );
   }
 });
-test("idle round phases use the server wait lock and a zero-two settlement shows the unit multiplier", () => {
+test("idle round phases use the server wait lock and settlement omits private arithmetic", () => {
   const [, , , paid, next] = lastPlaySequence.continuing;
   for (const { view } of [paid, next]) {
     const html = render(props(view));
     for (const action of ["submit", "pass"] as const)
       expectLock(html, actionTag(html, action), "서버 응답 대기");
   }
-  expect(render(props(paid.view))).toContain("남은 0장 × 1배(2가 0장) = 0");
+  expect(render(props(paid.view))).not.toContain("배(2가");
 });
 
 test("wide selection shows short text and preserves the full accessible preview for counts 0 through 13", () => {
@@ -1269,7 +1277,7 @@ test("wide self cell preserves seat, balance and pass or spectating status", () 
         ),
       );
       expect(html).toContain(
-        `<div class="gc-command"><span class="gc-self"><span>나 </span>4번 ${chips}칩 탈락 · 관전 중</span></div>`,
+        `<div class="gc-command"><span class="gc-self"><span>나 </span>4번 ${chips}칩 ${view.phase === "GAME_OVER" ? "탈락" : "탈락 · 관전 중"}</span></div>`,
       );
     }
   }
@@ -1322,8 +1330,8 @@ test("a deal takes the message row while the opponent lock remains a control des
 test("compact deals keep the full sentence as the accessible name of the shorter notice", () => {
   for (const { view } of dealExamples) {
     const count = view.ownHand?.length;
-    const full = `R1 · 숫자 1~${view.maxNumber} · ${count}장씩 · 선 1번(구름 3)`;
-    const short = `R1 1~${view.maxNumber} ${count}장씩 선 1번 구름3`;
+    const full = `R1/5 · 숫자 1~${view.maxNumber} · ${count}장씩 · 선 1번(구름 3)`;
+    const short = `R1/5 1~${view.maxNumber} ${count}장씩 선 1번 구름3`;
     expect(render(props(view, {}, 1))).toContain(
       `role="note" aria-label="${full}">${short}</span>`,
     );
@@ -1355,13 +1363,12 @@ test("a returned seat announces only an unseen automatic action from this docume
   }
 });
 
-test("compact settlement pages fill the natural center and visit every public row and the recipient's detail", () => {
+test("compact settlement pages fill the natural center and visit every public row", () => {
   const view = lastPlaySequence.continuing[3].view;
   const texts = [
-    "1위 1번 +3칩 → 67칩",
-    "2위 2번 0칩 → 64칩",
-    "3위 3번 −3칩 → 61칩",
-    "배(2가 0장)",
+    "<u>1위</u> 1번 0장 +3칩 67칩",
+    "2위 2번 1장 0칩 64칩",
+    "3위 3번 2장 −3칩 61칩",
   ];
   for (const [page, row] of texts.entries()) {
     const html = renderToStaticMarkup(
@@ -1532,7 +1539,7 @@ test("only the connected game-to-lobby transition updates the live abandonment a
     }),
   );
   expect(deal).toContain('class="gc-round">R1');
-  expect(deal).toContain("R1 · 숫자 1~13");
+  expect(deal).toContain("R1/5 · 숫자 1~13");
   expect(deal).not.toMatch(
     /시간 초과|gc-end|data-panel="settlement"|gc-last-result/,
   );
@@ -1568,8 +1575,12 @@ test("names replace seat numbers in the lobby, nameplates, turn, caption and pas
   // The command row keeps the seat number to fit its 97px cell.
   expect(wide).toMatch(/class="gc-self">.*2번 64칩/);
   const compact = render(props(game, { seatId }, 0, caption));
-  expect(compact).toContain(">가나다라마바 12장 64칩 차례<");
-  expect(compact).toContain(">Bob7 11장 64칩<");
+  expect(compact).toContain(
+    '>가나다라마바 <span class="gc-count">12장</span> <span>64칩</span> 차례<',
+  );
+  expect(compact).toContain(
+    '>Bob7 <span class="gc-count">11장</span> <span>64칩</span><',
+  );
   const past = render(
     props(leaveExamples.game.after[0].frame.view, { seatId: 0 }),
   );
@@ -1633,7 +1644,7 @@ test("entry names are trimmed, validated like the server and remembered best eff
 });
 test("leave sits in the lobby, menu and end screen and confirms only from an active seat in a running game", () => {
   expect(render(props(seatReuse.joins[0].view))).toMatch(
-    /<button type="button">복사<\/button><button type="button">나가기<\/button>/,
+    /<button type="button">링크 복사<\/button><button type="button">나가기<\/button>/,
   );
   expect(confirmsLeave(follow, 0)).toBe(true);
   expect(
@@ -1696,4 +1707,149 @@ test("entry, lobby, panel, end and compact rows keep space between adjacent bloc
     [".gc-compact .gc-table", "margin-block: 4px"],
   ] as const)
     expect(styleRule(selector)).toContain(declaration);
+});
+
+test("both layouts distinguish actionable, urgent and expired turns and preserve both lock descriptions", () => {
+  for (const k of [1, 3]) {
+    for (const mine of [true, false]) {
+      for (const n of [6, 5, 0]) {
+        const p = props(
+          {
+            ...follow,
+            maxRounds: 10,
+            currentTurn: mine ? 0 : 1,
+            deadline: epoch + n * 1000,
+          },
+          { selected: [] },
+          k,
+          () => ({ ok: false, reason: "EMPTY" }),
+        );
+        const html = render(p);
+        expect(html).toContain(`data-own-turn="${mine}"`);
+        expect(html.includes("gc-status gc-urgent")).toBe(n <= 5);
+        expect(html).toContain(`role="timer" class="gc-time">${clockText(n)}<`);
+        expect(html).toContain("R1/10");
+        expect(html).toContain(
+          `id="gc-live-text">${n === 0 ? "시간이 지났어요" : mine ? "내 차례 · 높게 내거나 패스하세요" : "내 차례를 기다려 주세요"}<`,
+        );
+      }
+    }
+    const empty = render(
+      props(lead, { selected: [] }, k, () => ({ ok: false, reason: "EMPTY" })),
+    );
+    expect(empty).toContain("내 차례 · 먼저 내세요");
+    expectLock(empty, actionTag(empty, "submit"), "패를 골라 주세요");
+    expectLock(empty, actionTag(empty, "pass"), "선은 패스할 수 없어요");
+    expect(
+      render(
+        props(follow, {}, k, () => ({ ok: false, reason: "WRONG_COUNT" })),
+      ),
+    ).toContain("내 차례 · 같은 장수로 내세요");
+    expect(render(props(dealExamples[0].view, {}, k))).toContain(
+      'data-own-turn="false"',
+    );
+  }
+});
+
+test("creation selects have labeled options and defaults, both lobby roles read the public settings", () => {
+  const html = render(props(null));
+  expect(html).toMatch(
+    /턴 제한시간 <select><option value="15">15초.*value="30" selected="">30초.*45초.*60초.*90초/,
+  );
+  expect(html).toMatch(
+    /최대 라운드 <select><option value="3">3.*value="5" selected="">5.*value="7">7.*value="10">10/,
+  );
+  for (const seatId of [0, 1] as const) {
+    expect(render(props(configuredRoom.lobby.view, { seatId }))).toContain(
+      "턴 제한시간 45초 · 최대 3라운드",
+    );
+    expect(render(props(phaseExamples[0].view, { seatId }))).toContain(
+      "턴 제한시간 30초 · 최대 5라운드",
+    );
+  }
+});
+
+test("invite copy writes the root URL and exposes the same full URL for manual copying on failure", async () => {
+  const oldLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
+  const oldClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  const writeText = mock(async (_link: string) => {});
+  try {
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: new URL("https://game.test/play?other=yes#fragment"),
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    expect(await copyRoomLink(roomCode)).toBe("");
+    const link = `https://game.test/?room=${roomCode}`;
+    expect(writeText).toHaveBeenCalledWith(link);
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    expect(await copyRoomLink(roomCode)).toBe(link);
+  } finally {
+    if (oldLocation) Object.defineProperty(globalThis, "location", oldLocation);
+    else Reflect.deleteProperty(globalThis, "location");
+    if (oldClipboard)
+      Object.defineProperty(navigator, "clipboard", oldClipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
+});
+
+function FilledEntry({
+  p,
+  onJoin,
+}: {
+  p: Parameters<typeof Entry>[0];
+  onJoin: (submit: () => void) => void;
+}) {
+  const [filled, setFilled] = useState(false);
+  const entry = Entry(p);
+  function visit(node: ReactNode) {
+    if (
+      !isValidElement<{
+        children?: ReactNode;
+        id?: string;
+        value?: number;
+        onChange?: (e: { target: { value: string } }) => void;
+        onSubmit?: (e: { preventDefault: () => void }) => void;
+      }>(node)
+    )
+      return;
+    if (!filled) {
+      if (node.type === "select")
+        node.props.onChange?.({
+          target: { value: node.props.value === 30 ? "90" : "7" },
+        });
+      if (node.props.id === "gc-code")
+        node.props.onChange?.({ target: { value: " abcd23 " } });
+      if (node.props.id === "gc-name")
+        node.props.onChange?.({ target: { value: " 별 " } });
+    } else if (node.type === "form")
+      onJoin(() => node.props.onSubmit?.({ preventDefault: noop }));
+    Children.forEach(node.props.children, visit);
+  }
+  visit(entry);
+  if (!filled) setFilled(true);
+  else click(Action(findAction(entry, "방 만들기")));
+  return entry;
+}
+test("entry selection sends configured values only with creation", () => {
+  const createRoom = mock(),
+    joinRoom = mock();
+  const p = { ...props(null), createRoom, joinRoom, message: "" };
+  let submit = noop;
+  renderToStaticMarkup(
+    <FilledEntry
+      p={p}
+      onJoin={(action) => {
+        submit = action;
+      }}
+    />,
+  );
+  submit();
+  expect(createRoom.mock.calls).toEqual([
+    ["별", { turnLimitSeconds: 90, maxRounds: 7 }],
+  ]);
+  expect(joinRoom.mock.calls).toEqual([[roomCode, "별"]]);
 });

@@ -51,6 +51,7 @@ test("gesture, batch scheduling, drops and repeated IDs", async () => {
     return ctx as unknown as AudioContext;
   });
   const batch = [
+    { type: "MY_TURN", turnId: 2 },
     { type: "SETTLEMENT", round: 1 },
     { type: "PLAY", turnId: 1 },
   ] as const;
@@ -63,14 +64,16 @@ test("gesture, batch scheduling, drops and repeated IDs", async () => {
   sound.play(batch);
   expect(created).toBe(1);
   expect(resumes).toBeGreaterThan(0);
-  expect(types).toEqual(["triangle", "square", "square"]);
-  expect(starts).toEqual([0, 0.045, 0.125]);
-  expect(stops).toEqual([0.045, 0.045 + 0.06, 0.185]);
+  expect(types).toEqual(["triangle", "square", "square", "sine"]);
+  expect(starts).toEqual([0, 0.045, 0.125, 0.045 + 0.14]);
+  expect(stops).toEqual([0.045, 0.045 + 0.06, 0.185, 0.045 + 0.14 + 0.08]);
   expect(hz).toEqual([
     [480, 0],
     [220, 0.045],
     [440, 0.045],
     [660, 0.125],
+    [660, 0.045 + 0.14],
+    [880, 0.045 + 0.14 + 0.08],
   ]);
   expect(gains).toEqual([
     [0, 0],
@@ -82,6 +85,9 @@ test("gesture, batch scheduling, drops and repeated IDs", async () => {
     [0, 0.125],
     [0.035, 0.125 + 0.004],
     [0, 0.185],
+    [0, 0.045 + 0.14],
+    [0.07, 0.045 + 0.14 + 0.004],
+    [0, 0.045 + 0.14 + 0.08],
   ]);
   expect(ramps).toEqual([
     [220, 0.045],
@@ -91,14 +97,17 @@ test("gesture, batch scheduling, drops and repeated IDs", async () => {
     [0, 0.045 + 0.06],
     [0.035, 0.125 + 0.004],
     [0, 0.185],
+    [880, 0.045 + 0.14 + 0.08],
+    [0.07, 0.045 + 0.14 + 0.004],
+    [0, 0.045 + 0.14 + 0.08],
   ]);
-  sound.play([batch[1]]);
-  expect(starts).toHaveLength(4);
+  sound.play([batch[2]]);
+  expect(starts).toHaveLength(5);
   sound.dispose();
   sound.play(batch);
   sound.dispose();
   expect(closed).toBe(1);
-  expect(starts).toHaveLength(4);
+  expect(starts).toHaveLength(5);
 });
 test("an unavailable context is attempted once", () => {
   let calls = 0;

@@ -159,7 +159,14 @@ export function Seats({
               className={active ? "gc-plate gc-current" : "gc-plate"}
               style={wide ? box(nameplate) : undefined}
             >
-              {wide ? name : label}
+              {name}
+              {!wide && (
+                <>
+                  {" "}
+                  <span className="gc-count">{s.remainingTileCount}장</span>{" "}
+                  <span>{s.chips}칩</span>
+                </>
+              )}
               {!wide && active ? " 차례" : ""}
             </span>
             {state && (

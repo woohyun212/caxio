@@ -40,7 +40,7 @@ import {
   startSession,
 } from "./main";
 import { TableLifecycle } from "./table";
-import { requestTurn } from "./ui/state";
+import { linkedRoom, requestTurn } from "./ui/state";
 
 test("preview replays every frozen example and prioritizes competing rejections", () => {
   for (const ex of [...previewExamples, ...representativeExamples])
@@ -89,6 +89,7 @@ function harness(
   origin = "https://game.test",
   restore: boolean | Credential = false,
   wrap = (open: ReturnType<typeof browserSocket>) => open,
+  search = "",
 ) {
   const connect = mock((_url: string) => new Socket());
   function socket(index = 0) {
@@ -132,6 +133,7 @@ function harness(
     storage,
     audio,
     create,
+    linkedRoom(search),
   );
   function seated(snapshot: Snapshot, seatId = 0) {
     if (!restore) session.createRoom();
@@ -682,4 +684,120 @@ test("startup sends one revoked resume and displays the denial at entry with cle
   expect(html).toContain(errorText(replies[0].code));
   expect(h.storage.getItem("caxio.credential")).toBeNull();
   expect(h.connect).toHaveBeenCalledTimes(1);
+});
+
+test("invite startup normalizes the code, chooses the handshake and stops on rejection", () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  try {
+    for (const [restore, name, type, code] of [
+      [true, "별", "RESUME", "RESUME_DENIED"],
+      [true, "", "RESUME", "ROOM_NOT_FOUND"],
+      [false, "달", "JOIN_ROOM", "ROOM_NOT_FOUND"],
+      [false, "", "JOIN_ROOM", "ROOM_FULL"],
+      [
+        { roomCode: "WXYZ89", token: "other" },
+        "invalid!",
+        "JOIN_ROOM",
+        "GAME_STARTED",
+      ],
+    ] as const) {
+      Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        value: { getItem: () => name },
+      });
+      const h = harness(undefined, restore, undefined, "?room=%20abcd23%20");
+      h.socket().dispatchEvent(new Event("open"));
+      expect(h.socket().commands).toEqual([
+        type === "RESUME"
+          ? { type, roomCode, token: "testing" }
+          : { type, roomCode, ...(name === "달" ? { name } : {}) },
+      ]);
+      h.socket().receive({ type: "ERROR", code });
+      expect(h.storage.getItem("caxio.credential")).toBeNull();
+      expect(markup(h.session)).toContain(errorText(code));
+      const schedule = mock(() => () => {});
+      scheduleSeatRecovery(h.session, schedule)();
+      expect(schedule).not.toHaveBeenCalled();
+      expect(h.connect).toHaveBeenCalledTimes(1);
+    }
+    const h = harness(undefined, true, undefined, "?room=%20bad%20");
+    expect(h.connect).not.toHaveBeenCalled();
+    expect(h.session.getState().credential).toBeNull();
+  } finally {
+    if (original) Object.defineProperty(globalThis, "localStorage", original);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+});
+
+test("next-deal settlement retains the public counts only for a tab that saw settlement", () => {
+  const [, , , paid, next] = lastPlaySequence.continuing;
+  const h = harness();
+  h.seated(paid);
+  h.socket().receive(next);
+  expect(markup(h.session)).toContain("1번(나) 0장 +3칩 67칩");
+  const returning = harness(undefined, true);
+  returning.seated(next);
+  expect(markup(returning.session)).toContain("1번(나) +3칩 67칩");
+});
+
+test("the link value stays editable on rejection and leaving preserves other address components", () => {
+  const originalLocation = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "location",
+  );
+  const originalHistory = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "history",
+  );
+  try {
+    let url = new URL("https://game.test/?x=1&room=%20bad%20#tab");
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      get: () => url,
+    });
+    Object.defineProperty(globalThis, "history", {
+      configurable: true,
+      value: {
+        state: "state",
+        replaceState(state: string, _unused: string, next: URL) {
+          expect(state).toBe("state");
+          url = next;
+        },
+      },
+    });
+    const invalid = harness(undefined, false, undefined, url.search);
+    expect(invalid.connect).not.toHaveBeenCalled();
+    expect(markup(invalid.session)).toMatch(/id="gc-code"[^>]*value="BAD"/);
+    url.searchParams.set("room", roomCode.toLowerCase());
+    for (const code of [
+      "ROOM_NOT_FOUND",
+      "ROOM_FULL",
+      "GAME_STARTED",
+      "RESUME_DENIED",
+    ] as const) {
+      const h = harness(
+        undefined,
+        code === "RESUME_DENIED",
+        undefined,
+        url.search,
+      );
+      h.socket().dispatchEvent(new Event("open"));
+      h.socket().receive({ type: "ERROR", code });
+      const html = markup(h.session);
+      expect(html).toMatch(/id="gc-code"[^>]*value="ABCD23"/);
+      expect(html).toContain(errorText(code));
+    }
+    const h = harness(undefined, true, undefined, url.search);
+    h.session.leaveRoom?.();
+    expect(url.href).toBe("https://game.test/?x=1#tab");
+    expect(markup(h.session)).toMatch(/id="gc-code"[^>]*value=""/);
+  } finally {
+    for (const [key, original] of [
+      ["location", originalLocation],
+      ["history", originalHistory],
+    ] as const) {
+      if (original) Object.defineProperty(globalThis, key, original);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
 });

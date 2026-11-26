@@ -271,12 +271,12 @@ export const createClientSession: CreateClientSession = (deps) => {
       store.subscribe((state, previous) => {
         bestEffort(() => listener(state, previous));
       }),
-    createRoom(name) {
+    createRoom(name, settings) {
       if (beginAction())
         connect(
           name === undefined
-            ? { type: "CREATE_ROOM" }
-            : { type: "CREATE_ROOM", name },
+            ? { type: "CREATE_ROOM", ...settings }
+            : { type: "CREATE_ROOM", name, ...settings },
         );
     },
     joinRoom(roomCode, name) {

@@ -981,3 +981,24 @@ test("names ride on create and join, and leaving revokes the seat and returns to
   expect(h.latest().close).toHaveBeenCalledTimes(1);
   expect(h.session.getState().connection).toBe("DISCONNECTED");
 });
+
+test("only CREATE_ROOM carries its supplied settings", () => {
+  const h = harness();
+  for (const settings of [
+    undefined,
+    { turnLimitSeconds: 15 },
+    { maxRounds: 10 },
+    { turnLimitSeconds: 45, maxRounds: 3 },
+  ] as const) {
+    h.session.createRoom("별", settings);
+    h.latest().events.open();
+    expect(h.latest().sent).toEqual([
+      { type: "CREATE_ROOM", name: "별", ...settings },
+    ]);
+  }
+  h.session.joinRoom(roomCode, "별");
+  h.latest().events.open();
+  expect(h.latest().sent).toEqual([
+    { type: "JOIN_ROOM", roomCode, name: "별" },
+  ]);
+});

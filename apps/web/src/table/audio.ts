@@ -58,6 +58,11 @@ export const createAudioEffects: CreateAudioEffects = (createContext) => {
         tone(context, start + 0.08, "square", 660, 0.06, 0.035, 0.004);
         start += 0.14;
       }
+      for (const event of events) {
+        if (event.type !== "MY_TURN") continue;
+        tone(context, start, "sine", 660, 0.08, 0.07, 0.004, 880);
+        start += 0.08;
+      }
     },
     dispose() {
       if (disposed) return;
