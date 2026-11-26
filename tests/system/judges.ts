@@ -2,9 +2,14 @@ import { isDeepStrictEqual as equal } from "node:util";
 import { handOrder } from "../../apps/web/src/visual/layout";
 import type {
   Action,
+  MaxNumber,
   SeatId,
   Tile,
 } from "../../packages/shared/src/contracts/domain";
+import type {
+  RoomSettings,
+  TurnLimitSeconds,
+} from "../../packages/shared/src/contracts/settings";
 import {
   decodeServerMessage,
   type PlayerView,
@@ -52,11 +57,53 @@ export function isPresence(before: PlayerView, after: PlayerView) {
   );
   return true;
 }
+export function checkSettings(
+  view: PlayerView,
+  expected: Required<RoomSettings>,
+) {
+  requireCheck(
+    view.turnLimitSeconds === expected.turnLimitSeconds,
+    `expected turnLimitSeconds=${expected.turnLimitSeconds} in ${view.phase}`,
+  );
+  requireCheck(
+    view.maxRounds === expected.maxRounds,
+    `expected maxRounds=${expected.maxRounds} in ${view.phase}`,
+  );
+}
+export function checkDeadline(
+  frame: Snapshot,
+  seconds: TurnLimitSeconds,
+  opening: boolean,
+) {
+  if (frame.view.phase !== "TURN_ACTIVE") return;
+  const left = frame.view.deadline - frame.serverNow,
+    limit = seconds * 1000;
+  requireCheck(left <= limit, `active deadline exceeds ${limit} ms`);
+  requireCheck(
+    !opening || left >= limit - 250,
+    `new turn has less than ${limit - 250} ms`,
+  );
+}
+
+export function singleAction(
+  sorted: readonly Tile[],
+  table: readonly Tile[] | null,
+  maxNumber: MaxNumber,
+): Action {
+  if (!table)
+    return { type: "PLAY", tiles: [need(sorted[0], "empty acting hand")] };
+  const previous = need(table[0], "empty table"),
+    high = need(sorted.at(-1), "empty acting hand");
+  if (handOrder([previous, high], maxNumber)[0] === previous)
+    return { type: "PLAY", tiles: [high] };
+  return { type: "PASS" };
+}
 export function judgeFrame(
   raw: unknown,
   seat: SeatId | null,
   tokens: ReadonlyMap<SeatId, string>,
   previous?: Snapshot,
+  checkSnapshot?: (frame: Snapshot) => void,
 ) {
   const message = decodeServerMessage(raw, seat);
   const owner =
@@ -74,6 +121,7 @@ export function judgeFrame(
     "invalid server frame or recipient",
   );
   requireCheck(message.type !== "SEATED" || seat === null, "unexpected SEATED");
+  if (message.type === "SNAPSHOT") checkSnapshot?.(message);
   if (message.type === "SNAPSHOT" && previous) {
     requireCheck(message.revision >= previous.revision, "revision decreased");
     if (message.revision === previous.revision) {

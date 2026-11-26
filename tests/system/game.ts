@@ -4,6 +4,7 @@ import type {
   Action,
   SeatId,
 } from "../../packages/shared/src/contracts/domain";
+import { configuredRoom } from "../../packages/shared/src/contracts/fixtures";
 import {
   type Command,
   type ErrorCode,
@@ -16,10 +17,12 @@ import {
 } from "../../packages/shared/src/contracts/wire";
 import {
   checkAction,
+  checkDeadline,
   checkDeal,
   checkFinal,
   checkNames,
   checkPublic,
+  checkSettings,
   errorName,
   isPresence,
   judgeFrame,
@@ -27,6 +30,7 @@ import {
   ProbeFailure,
   publicTable,
   requireCheck,
+  singleAction,
 } from "./judges";
 
 export class Client {
@@ -54,7 +58,7 @@ export class Client {
         room.fail(new ProbeFailure("socket connection failed"));
     };
     this.ws.onmessage = ({ data }) => {
-      if (this.ignored || room.failure) return;
+      if (room.failure) return;
       try {
         room.receive(this, data);
       } catch (error) {
@@ -117,6 +121,11 @@ const codes = [
 ] as const;
 // Seat 1 stays unnamed; seat 2 takes the widest legal name, then a new one after leaving the lobby.
 const joinNames = ["철수", undefined, "가나다라마바"] as const;
+export const generalCreate = { ...configuredRoom.create, name: joinNames[0] };
+export const invalidCreates = {
+  turnLimitSeconds: { type: "CREATE_ROOM", turnLimitSeconds: 44 },
+  maxRounds: { type: "CREATE_ROOM", maxRounds: 4 },
+} as const;
 const rejoinName = "Bob7";
 const naming = (name?: string) => (name === undefined ? {} : { name });
 export abstract class SocketRoom {
@@ -186,6 +195,31 @@ export class Game extends SocketRoom {
       client.credential?.seatId ?? null,
       this.tokens,
       client.previous,
+      (frame) => {
+        const enclosing = this.currentCheck,
+          v = frame.view;
+        this.currentCheck = "game.max-rounds";
+        requireCheck(
+          v.round <= generalCreate.maxRounds,
+          "round beyond configured maximum",
+        );
+        if (v.round < generalCreate.maxRounds) {
+          requireCheck(
+            v.phase !== "ROUND_SETTLEMENT" || v.activePlayers.length === 3,
+            "max rounds not observed: early elimination",
+          );
+          requireCheck(v.phase !== "GAME_OVER", "GAME_OVER before round 3");
+        }
+        this.currentCheck = "game.settings";
+        checkSettings(v, generalCreate);
+        this.currentCheck = "game.deadline";
+        checkDeadline(
+          frame,
+          generalCreate.turnLimitSeconds,
+          !!client.previous && v.turnId !== client.previous.view.turnId,
+        );
+        this.currentCheck = enclosing;
+      },
     );
     if (!message) return;
     requireCheck(!client.left, "frame sent to the leaver");
@@ -256,6 +290,15 @@ export class Game extends SocketRoom {
           { type: "CREATE_ROOM", name: "가나다라마바사" },
           "name.CREATE_ROOM",
         );
+        for (const [key, command] of Object.entries(invalidCreates)) {
+          await this.reject(
+            c,
+            "INVALID_MESSAGE",
+            JSON.stringify(command),
+            key,
+            true,
+          );
+        }
       }
       if (i === 1)
         await this.reject(
@@ -271,7 +314,7 @@ export class Game extends SocketRoom {
         this.seat(
           c,
           i === 0
-            ? { type: "CREATE_ROOM", ...naming(name) }
+            ? generalCreate
             : { type: "JOIN_ROOM", roomCode: code, ...naming(name) },
         ),
         ...old.map((p) => p.next("SNAPSHOT")),
@@ -417,6 +460,7 @@ export class Game extends SocketRoom {
     code: ErrorCode,
     command: Request | string,
     id: string = code,
+    confirmUnseated = false,
   ) {
     if (this.exercised.has(id)) return;
     this.idle();
@@ -426,6 +470,14 @@ export class Game extends SocketRoom {
     const error = await c.next("ERROR");
     requireCheck(error.code === code, `expected ERROR(${code})`);
     this.idle();
+    if (confirmUnseated) {
+      c.send({ type: "LEAVE_ROOM" });
+      requireCheck(
+        (await c.next("ERROR")).code === "NOT_SEATED",
+        "invalid create seated the requester",
+      );
+      this.idle();
+    }
     this.exercised.add(id);
     this.passed(this.currentCheck);
     this.currentCheck = enclosing;
@@ -509,9 +561,10 @@ export class Game extends SocketRoom {
         );
         const lowest = need(hand[0], "empty acting hand");
         const turnId = view.turnId;
-        const action: Action & { turnId: number } = view.tableHand
-          ? { type: "PASS", turnId }
-          : { type: "PLAY", turnId, tiles: [lowest] };
+        const action = {
+          ...singleAction(hand, view.tableHand, view.maxNumber),
+          turnId,
+        };
         let old: Client | undefined;
         if (round === 1) {
           const other = need(
@@ -553,14 +606,7 @@ export class Game extends SocketRoom {
               turnId,
               tiles: [lowest, different],
             });
-          const table = view.tableHand?.[0];
-          if (table && handOrder([lowest, table], view.maxNumber)[0] === lowest)
-            await this.reject(actor, "NOT_HIGHER", {
-              type: "PLAY",
-              turnId,
-              tiles: [lowest],
-            });
-          if (!resumed && !table) {
+          if (!resumed && !view.tableHand) {
             this.currentCheck = "resume.active";
             const retry = await this.resume(actor, action);
             old = retry.old;
@@ -568,6 +614,13 @@ export class Game extends SocketRoom {
             resumed = true;
           }
         }
+        const table = view.tableHand?.[0];
+        if (table && handOrder([lowest, table], view.maxNumber)[0] === lowest)
+          await this.reject(actor, "NOT_HIGHER", {
+            type: "PLAY",
+            turnId,
+            tiles: [lowest],
+          });
         this.idle();
         const before = this.live.map((c) => this.state(c));
         requireCheck(
@@ -629,6 +682,11 @@ export class Game extends SocketRoom {
           }
         }
       }
+      this.currentCheck = "game.max-rounds";
+      requireCheck(
+        round === generalCreate.maxRounds,
+        "max rounds not observed",
+      );
       this.currentCheck = "game.final";
       for (const c of this.live) checkFinal(this.state(c));
       for (const code of codes) {
@@ -664,6 +722,9 @@ export class Game extends SocketRoom {
       await this.leaveFinal(
         need(this.live[0]?.credential, "missing room").roomCode,
       );
+      this.passed("game.max-rounds");
+      this.passed("game.settings");
+      this.passed("game.deadline");
     } finally {
       this.closeAll();
     }

@@ -14,7 +14,7 @@ async function run(fault?: Fault) {
       log: (line) => lines.push(line),
       readinessMs: 70,
       frameMs: fault === "silent" ? 45 : 1000,
-      totalMs: fault === "endless" ? 180 : 3000,
+      totalMs: 3000,
     });
     for (const token of server.tokens)
       expect(lines.join("\n")).not.toContain(token);
@@ -30,12 +30,14 @@ async function run(fault?: Fault) {
 test("three real sockets, seven rejections, lost and final resumes", async () => {
   const { code, output, observations } = await run();
   const ordered = handOrder(firstDealState.players[0].hand, 9);
-  expect(observations).toEqual({
+  const { leads, lowestAtLead, ...resumes } = observations;
+  expect(resumes).toEqual({
     activeResumes: 2,
     finalResumes: [0, 1, 2],
     replacedPlays: ordered.slice(1, 2),
-    leads: [...ordered],
   });
+  expect(leads).toEqual(lowestAtLead);
+  expect(leads[0]).toEqual(ordered[0]);
   expect(output).toContain("summary PASS");
   expect(code).toBe(0);
   for (const id of [
@@ -48,6 +50,11 @@ test("three real sockets, seven rejections, lost and final resumes", async () =>
     "resume.active",
     "resume.final",
     "game.final",
+    "game.settings",
+    "game.deadline",
+    "game.max-rounds",
+    "reject.turnLimitSeconds",
+    "reject.maxRounds",
     "leave.lobby",
     "leave.final",
     "reject.NOT_SEATED",
@@ -69,6 +76,27 @@ test("three real sockets, seven rejections, lost and final resumes", async () =>
     expect(output).toContain(`${id} PASS`);
 });
 for (const [fault, reason] of [
+  [
+    "accept-limit",
+    "reject.turnLimitSeconds FAIL expected ERROR, received SEATED",
+  ],
+  ["accept-rounds", "reject.maxRounds FAIL expected ERROR, received SEATED"],
+  [
+    "default-settings",
+    "game.settings FAIL expected turnLimitSeconds=45 in LOBBY",
+  ],
+  ["missing-limit", "game.settings FAIL expected turnLimitSeconds=45 in LOBBY"],
+  [
+    "replaced-settings",
+    "game.settings FAIL expected turnLimitSeconds=45 in TURN_ACTIVE",
+  ],
+  ["wrong-joiner", "game.settings FAIL expected turnLimitSeconds=45 in LOBBY"],
+  ["short-deadline", "game.deadline FAIL new turn has less than 44750 ms"],
+  ["early-end", "game.max-rounds FAIL GAME_OVER before round 3"],
+  [
+    "early-elimination",
+    "game.max-rounds FAIL max rounds not observed: early elimination",
+  ],
   ["wrong-error", "reject.DUPLICATE_TILE FAIL expected ERROR(DUPLICATE_TILE)"],
   ["extra-error", "unexpected unrequested frame"],
   ["resume-token", "resume.active FAIL resume credential mismatch"],
@@ -86,11 +114,12 @@ for (const [fault, reason] of [
   ["missing", "http.missing FAIL"],
   ["approve", "expected ERROR"],
   ["silent", "frame budget"],
-  ["endless", "total budget"],
+  ["endless", "game.max-rounds FAIL round beyond configured maximum"],
+  ["wrong-rounds", "game.settings FAIL expected maxRounds=3 in LOBBY"],
+  ["overlong-replay", "game.deadline FAIL active deadline exceeds 45000 ms"],
   ["unready", "readiness budget"],
   ["old-play", "lastPlay mismatch"],
   ["old-close", "disconnected live seat"],
-  ["no-lower", "unexercised NOT_HIGHER"],
   [
     "accept-name",
     "reject.name.CREATE_ROOM FAIL expected ERROR, received SEATED",
@@ -114,6 +143,22 @@ for (const [fault, reason] of [
     expect(output).toContain("http.health ");
     expect(output).toContain("asset/fonts/ofl.md ");
   });
+test("total budget bounds a silent socket even with a longer frame budget", async () => {
+  const server = fixture("silent"),
+    lines: string[] = [];
+  try {
+    const code = await runProbe(server.origin, {
+      assets,
+      frameMs: 1000,
+      totalMs: 150,
+      log: (l) => lines.push(l),
+    });
+    expect(code).toBe(1);
+    expect(lines.join("\n")).toContain("total budget exceeded");
+  } finally {
+    await server.stop();
+  }
+});
 test("CLI usage exits 2", () => {
   for (const args of [[], ["invalid origin"]]) {
     const result = Bun.spawnSync([

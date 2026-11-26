@@ -11,6 +11,12 @@ import {
   roomCode,
 } from "../../packages/shared/src/contracts/fixtures";
 import {
+  DEFAULT_MAX_ROUNDS,
+  DEFAULT_TURN_LIMIT_SECONDS,
+  type MaxRounds,
+  type TurnLimitSeconds,
+} from "../../packages/shared/src/contracts/settings";
+import {
   decodeRequest,
   decodeServerMessage,
   type ErrorCode,
@@ -22,6 +28,10 @@ import { rules } from "../../packages/shared/src/index";
 import { need } from "./judges";
 
 export type Fault =
+  | "lost-lobby-settings"
+  | "lost-restart-settings"
+  | "long-deadline"
+  | "wrong-defaults"
   | "chips"
   | "leaver"
   | "tie"
@@ -76,6 +86,8 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
     maxId = 0,
     misses = 0,
     abandoned = false;
+  let maxRounds: MaxRounds = DEFAULT_MAX_ROUNDS,
+    turnLimitSeconds: TurnLimitSeconds = DEFAULT_TURN_LIMIT_SECONDS;
   let state: GameState | undefined, result: LastGameResult | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let sockets = 0;
@@ -128,7 +140,6 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
           .view,
         phase: g.phase,
         round: g.round,
-        maxRounds: g.maxRounds,
         slots,
         seatOrder: order,
         activePlayers: g.activePlayers,
@@ -145,6 +156,13 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
           : {}),
       };
     }
+    view.turnLimitSeconds =
+      abandoned &&
+      ((fault === "lost-lobby-settings" && !g) ||
+        (fault === "lost-restart-settings" && g))
+        ? DEFAULT_TURN_LIMIT_SECONDS
+        : turnLimitSeconds;
+    view.maxRounds = g?.maxRounds ?? maxRounds;
     const invalid =
       (!g && result && fault === "invalid") ||
       (abandoned && !!g && fault === "restart-result");
@@ -214,6 +232,8 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
           serverNow: Date.now(),
           view: {
             ...paid.view,
+            turnLimitSeconds,
+            maxRounds,
             ownHand,
             ownSettlement: {
               round: 1,
@@ -224,7 +244,13 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
             ...(fault === "game-over"
               ? {
                   phase: "GAME_OVER",
-                  maxRounds: 1,
+                  activePlayers: [0, 1],
+                  slots: paid.view.slots.map((s, i) =>
+                    s && i >= 2 ? { ...s, chips: 0, isOut: true } : s,
+                  ),
+                  ...(id >= 2
+                    ? { ownHand: undefined, ownSettlement: undefined }
+                    : {}),
                   ranking: original.ranking.map(({ seatId, rank }) => ({
                     seatId,
                     rank,
@@ -277,7 +303,7 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
       commit(rules.advance(g, rng));
       return;
     }
-    deadline = Date.now() + limit;
+    deadline = Date.now() + (fault === "long-deadline" ? 30_000 : limit);
     maxId = g.turnId;
     broadcast();
     scheduleExpiry(g);
@@ -329,6 +355,11 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
             serverNow: Date.now(),
             view: {
               ...phaseExamples[0].view,
+              turnLimitSeconds:
+                fault === "wrong-defaults"
+                  ? turnLimitSeconds
+                  : (cmd.turnLimitSeconds ?? DEFAULT_TURN_LIMIT_SECONDS),
+              maxRounds: cmd.maxRounds ?? DEFAULT_MAX_ROUNDS,
               hostSeatId: 0,
               canStart: false,
               seatOrder: [0],
@@ -353,6 +384,11 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
           cmd.type === "JOIN_ROOM" ||
           cmd.type === "RESUME"
         ) {
+          if (cmd.type === "CREATE_ROOM") {
+            turnLimitSeconds =
+              cmd.turnLimitSeconds ?? DEFAULT_TURN_LIMIT_SECONDS;
+            maxRounds = cmd.maxRounds ?? DEFAULT_MAX_ROUNDS;
+          }
           if (cmd.type !== "CREATE_ROOM" && cmd.roomCode !== roomCode)
             return reject("ROOM_NOT_FOUND");
           const id =
@@ -457,7 +493,7 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
               result = wrongChips(result);
             return reject("NOT_HOST");
           }
-          const g = rules.startRound(order, rng);
+          const g = rules.startRound(order, rng, maxRounds);
           if (abandoned && fault === "restart-chips") {
             const p = need(g.players[0], "missing player");
             commit({

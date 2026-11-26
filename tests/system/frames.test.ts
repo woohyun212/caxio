@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { SeatId } from "../../packages/shared/src/contracts/domain";
 import {
+  configuredRoom,
   firstDealState,
   lastPlaySequence,
   leaveExamples,
@@ -9,17 +10,22 @@ import {
   phaseExamples,
   spectatorExamples,
 } from "../../packages/shared/src/contracts/fixtures";
-import type {
-  Message,
-  PlayerView,
+import {
+  decodeRequest,
+  type Message,
+  type PlayerView,
 } from "../../packages/shared/src/contracts/wire";
+import { abandonCreate, bareCreate } from "./abandon";
 import { checkLeave } from "./abandon-sequence";
+import { generalCreate, invalidCreates } from "./game";
 import {
   checkAction,
+  checkDeadline,
   checkDeal,
   checkFinal,
   checkNames,
   checkPublic,
+  checkSettings,
   isPresence,
   judgeFrame,
   need,
@@ -394,4 +400,49 @@ test("an active seat's leave matches the frozen abandonment lobby", () => {
     expect(() => checkLeave(view, lobby, seat), label).toThrow(
       "leave ranking, chips, names or leaver mismatch",
     );
+});
+
+test("probe creates match the frozen request decoder", () => {
+  expect(generalCreate).toEqual({
+    ...configuredRoom.create,
+    name: generalCreate.name,
+  });
+  for (const cmd of [generalCreate, abandonCreate, bareCreate])
+    expect(decodeRequest(JSON.stringify(cmd))).toEqual(cmd);
+  for (const cmd of Object.values(invalidCreates))
+    expect(decodeRequest(JSON.stringify(cmd))).toBe("INVALID_MESSAGE");
+});
+test("configured projections and opening deadline match the frozen frames", () => {
+  for (const frame of [
+    configuredRoom.lobby,
+    configuredRoom.active,
+    configuredRoom.ended,
+  ]) {
+    expect(judge(frame)).toEqual(frame);
+    checkSettings(frame.view, generalCreate);
+    checkDeadline(frame, generalCreate.turnLimitSeconds, true);
+    const { turnLimitSeconds: _limit, ...missing } = frame.view;
+    for (const change of [
+      {},
+      { turnLimitSeconds: 30 as const },
+      { turnLimitSeconds: 45 as const, maxRounds: 5 },
+    ])
+      expect(() =>
+        checkSettings({ ...missing, ...change }, generalCreate),
+      ).toThrow("expected");
+  }
+  const active = configuredRoom.active;
+  requireCheck(active.view.phase === "TURN_ACTIVE", "expected active fixture");
+  const view = active.view;
+  const clock = (left: number, opening = true) =>
+    checkDeadline(
+      { ...active, view: { ...view, deadline: active.serverNow + left } },
+      45,
+      opening,
+    );
+  expect(() => clock(30_000)).toThrow("new turn");
+  clock(44_750);
+  expect(() => clock(44_749)).toThrow("new turn");
+  clock(30_000, false);
+  expect(() => clock(45_001, false)).toThrow("exceeds");
 });
