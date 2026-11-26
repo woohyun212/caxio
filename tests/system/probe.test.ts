@@ -48,6 +48,13 @@ test("three real sockets, seven rejections, lost and final resumes", async () =>
     "resume.active",
     "resume.final",
     "game.final",
+    "leave.lobby",
+    "leave.final",
+    "reject.NOT_SEATED",
+    "reject.name.CREATE_ROOM",
+    "reject.name.JOIN_ROOM",
+    "reject.RESUME_DENIED.lobby",
+    "reject.RESUME_DENIED.final",
     ...[
       "INVALID_MESSAGE",
       "NOT_YOUR_TURN",
@@ -84,6 +91,19 @@ for (const [fault, reason] of [
   ["old-play", "lastPlay mismatch"],
   ["old-close", "disconnected live seat"],
   ["no-lower", "unexercised NOT_HIGHER"],
+  [
+    "accept-name",
+    "reject.name.CREATE_ROOM FAIL expected ERROR, received SEATED",
+  ],
+  ["drop-name", "seat 2 name mismatch"],
+  ["resume-name", "resume.active FAIL seat 0 name mismatch"],
+  ["keep-leaver", "leave.lobby FAIL left seat not vacated"],
+  ["reuse-token", "leave.lobby FAIL rejoin reused the revoked credential"],
+  ["notify-leaver", "leave.lobby FAIL frame sent to the leaver"],
+  [
+    "accept-left",
+    "reject.RESUME_DENIED.final FAIL expected ERROR, received SEATED",
+  ],
 ] as const)
   test(`detect ${fault}`, async () => {
     const { code, output } = await run(fault);

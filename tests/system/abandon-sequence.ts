@@ -13,22 +13,47 @@ export const remaining = [1, 2, 3] as const;
 export const joined = [...remaining, 0] as const;
 type Turn = Extract<PlayerView, { phase: "TURN_ACTIVE" }>;
 
-function rank(turn: Turn): LastGameResult {
+// Rows copy each seat's confirmed chips and, when it has one, its name.
+function rank(turn: PlayerView, leaver: SeatId = 0): LastGameResult {
+  const row = (seatId: SeatId, rank: number): LastGameRankingRow => {
+    const { chips, name } = need(turn.slots[seatId], "missing pre-turn chips");
+    return name === undefined
+      ? { seatId, rank, chips }
+      : { seatId, rank, chips, name };
+  };
   const chips = (seat: SeatId) =>
     need(turn.slots[seat], "missing pre-turn chips").chips;
   const others = turn.seatOrder
-    .filter((id) => id !== 0)
+    .filter((id) => id !== leaver)
     .sort((a, b) => chips(b) - chips(a));
   let previous = -1,
     place = 0;
-  const ranking: LastGameRankingRow[] = others.map((seatId, i) => {
+  const ranking = others.map((seatId, i) => {
     const value = chips(seatId);
     if (value !== previous) place = i + 1;
     previous = value;
-    return { seatId, rank: place, chips: value };
+    return row(seatId, place);
   });
-  ranking.push({ seatId: 0, rank: turn.seatOrder.length, chips: chips(0) });
-  return { reason: "ABANDONMENT", leaverSeatId: 0, ranking };
+  ranking.push(row(leaver, turn.seatOrder.length));
+  return { reason: "ABANDONMENT", leaverSeatId: leaver, ranking };
+}
+// An explicit leave from a running game ends it at once, ranked from the last view before it.
+export function checkLeave(
+  before: PlayerView,
+  after: PlayerView,
+  leaver: SeatId,
+) {
+  const result = rank(before, leaver);
+  requireCheck(
+    after.phase === "LOBBY" && equal(after.lastGameResult, result),
+    "leave ranking, chips, names or leaver mismatch",
+  );
+  checkLobby(
+    after,
+    before.seatOrder.filter((id) => id !== leaver),
+    result,
+  );
+  return result;
 }
 
 export function checkLobby(

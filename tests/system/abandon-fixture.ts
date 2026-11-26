@@ -11,9 +11,10 @@ import {
   roomCode,
 } from "../../packages/shared/src/contracts/fixtures";
 import {
-  decodeCommand,
+  decodeRequest,
   decodeServerMessage,
   type ErrorCode,
+  type LastGameRankingRow,
   type LastGameResult,
   WS_PATH,
 } from "../../packages/shared/src/contracts/wire";
@@ -47,7 +48,15 @@ export type Fault =
   | "reject-opening"
   | "silent-active"
   | "duplicate-lobby"
-  | "split-revision";
+  | "split-revision"
+  | "drop-name"
+  | "keep-name"
+  | "leave-ignored"
+  | "leave-unnamed"
+  | "leave-chips"
+  | "leave-notify"
+  | "leave-accept"
+  | "leave-busy";
 type Socket = ServerWebSocket<{ id: SeatId | null }>;
 export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
   const tokens = [
@@ -56,8 +65,11 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
     "fixture-gamma-secret",
     "fixture-delta-secret",
     "fixture-replacement-secret",
+    "fixture-other-room-secret",
   ] as const;
   const order: SeatId[] = [];
+  const names = new Map<SeatId, string>();
+  let leaver: SeatId | undefined;
   const bound = new Map<SeatId, Socket>();
   let revision = 0,
     deadline = 0,
@@ -85,9 +97,11 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
   function snapshot(ws: Socket) {
     const id = need(ws.data.id, "unbound mock peer"),
       g = state;
+    // JSON.stringify drops the name of an unnamed seat.
     const slots = ([0, 1, 2, 3, 4] as const).map((i) =>
       order.includes(i)
         ? {
+            name: names.get(i),
             chips: g?.players[i]?.chips ?? 64,
             isOut: false,
             isConnected: bound.has(i),
@@ -154,6 +168,10 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
     revision += 2;
     for (const ws of bound.values()) snapshot(ws);
   }
+  function withName(row: LastGameRankingRow): LastGameRankingRow {
+    const name = names.get(row.seatId);
+    return name === undefined ? row : { ...row, name };
+  }
   function wrongChips(r: LastGameResult) {
     return {
       ...r,
@@ -217,6 +235,8 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
         });
       }
     }
+    result = { ...result, ranking: result.ranking.map(withName) };
+    if (fault !== "keep-name") names.delete(0);
     if (fault !== "keep-slot") order.shift();
     abandoned = true;
     state = undefined;
@@ -289,10 +309,45 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
         if (state?.currentTurn === id) scheduleExpiry(state);
       },
       message(ws, raw) {
-        const cmd = decodeCommand(raw);
+        const cmd = decodeRequest(raw);
         const reject = (code: ErrorCode) => send(ws, { type: "ERROR", code });
         if (cmd === "INVALID_MESSAGE") return reject(cmd);
         if (fault === "silent") return;
+        // The leaver's same connection opens a second, one-seat room that this fixture never broadcasts.
+        if (cmd.type === "CREATE_ROOM" && order.length) {
+          if (fault === "leave-busy") return reject("INVALID_PHASE");
+          ws.data.id = 0;
+          send(ws, {
+            type: "SEATED",
+            roomCode: "ZZZZ99",
+            seatId: 0,
+            token: tokens[5],
+          });
+          send(ws, {
+            type: "SNAPSHOT",
+            revision: 1,
+            serverNow: Date.now(),
+            view: {
+              ...phaseExamples[0].view,
+              hostSeatId: 0,
+              canStart: false,
+              seatOrder: [0],
+              slots: [
+                {
+                  chips: 64,
+                  isOut: false,
+                  isConnected: true,
+                  remainingTileCount: 0,
+                },
+                null,
+                null,
+                null,
+                null,
+              ],
+            },
+          });
+          return;
+        }
         if (
           cmd.type === "CREATE_ROOM" ||
           cmd.type === "JOIN_ROOM" ||
@@ -305,18 +360,28 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
               ? order.find((s) => token(s) === cmd.token)
               : ([0, 1, 2, 3] as const).find((s) => !order.includes(s));
           if (id === undefined) {
-            if (fault === "accept-revoked")
+            const revived =
+              fault === "accept-revoked"
+                ? 0
+                : fault === "leave-accept"
+                  ? leaver
+                  : undefined;
+            if (revived !== undefined)
               send(ws, {
                 type: "SEATED",
-                seatId: 0,
+                seatId: revived,
                 roomCode,
-                token: tokens[0],
+                token: tokens[revived],
               });
             else reject("RESUME_DENIED");
             return;
           }
           const liveResume = bound.has(id);
-          if (cmd.type !== "RESUME") order.push(id);
+          if (cmd.type !== "RESUME") {
+            order.push(id);
+            if (cmd.name !== undefined && fault !== "drop-name")
+              names.set(id, cmd.name);
+          }
           bound.set(id, ws);
           ws.data.id = id;
           send(ws, {
@@ -345,6 +410,47 @@ export function abandonFixture(fault?: Fault, limit = 60, rng = () => 0.99) {
           return;
         }
         const id = need(ws.data.id, "unseated mock command");
+        if (cmd.type === "LEAVE_ROOM") {
+          const g = need(state, "leave outside a running game");
+          if (fault === "leave-notify") {
+            revision += 2;
+            snapshot(ws);
+          }
+          bound.delete(id);
+          ws.data.id = null;
+          if (fault === "leave-ignored") return;
+          const chips = (s: SeatId) =>
+            need(g.players[s], "missing player").chips +
+            (fault === "leave-chips" ? 1 : 0);
+          const others = order
+            .filter((s) => s !== id)
+            .sort((a, b) => chips(b) - chips(a));
+          result = {
+            reason: "ABANDONMENT",
+            leaverSeatId: id,
+            ranking: [...others, id].map((seatId) => {
+              const row = {
+                seatId,
+                rank:
+                  seatId === id
+                    ? order.length
+                    : others.findIndex((s) => chips(s) === chips(seatId)) + 1,
+                chips: chips(seatId),
+              };
+              return fault === "leave-unnamed" ? row : withName(row);
+            }),
+          };
+          leaver = id;
+          order.splice(order.indexOf(id), 1);
+          names.delete(id);
+          state = undefined;
+          clearTimeout(timer);
+          stage = "left";
+          // Delay the others so the leaver's frame lands while the probe still expects silence.
+          if (fault === "leave-notify") setTimeout(broadcast, 20);
+          else broadcast();
+          return;
+        }
         if (cmd.type === "START_GAME") {
           if (id !== order[0]) {
             if (result && fault === "change-rejected")

@@ -121,6 +121,18 @@ export function checkDeal(views: ReadonlyMap<SeatId, PlayerView>) {
   }
   requireCheck(deck.size === 4 * first.maxNumber, "incomplete deck");
 }
+// Seats without an expectation (unknown or vacated) are skipped; undefined expects an unnamed seat.
+export function checkNames(
+  v: PlayerView,
+  names: ReadonlyMap<SeatId, string | undefined>,
+) {
+  for (const id of v.seatOrder)
+    if (names.has(id))
+      requireCheck(
+        v.slots[id]?.name === names.get(id),
+        `seat ${id} name mismatch`,
+      );
+}
 export function checkFinal(v: PlayerView) {
   requireCheck(v.phase === "GAME_OVER", "expected GAME_OVER");
   requireCheck(

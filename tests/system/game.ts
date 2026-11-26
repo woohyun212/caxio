@@ -9,6 +9,7 @@ import {
   type ErrorCode,
   type Message,
   type PlayerView,
+  type Request,
   type Seated,
   type Snapshot,
   WS_PATH,
@@ -17,6 +18,7 @@ import {
   checkAction,
   checkDeal,
   checkFinal,
+  checkNames,
   checkPublic,
   errorName,
   isPresence,
@@ -35,6 +37,7 @@ export class Client {
   queue: Message[] = [];
   ignored = false;
   replacing = false;
+  left = false;
   wake?: () => void;
   constructor(
     url: URL,
@@ -93,7 +96,7 @@ export class Client {
         this.queue.length === 0 && this.previous ? this.previous.view : m.view;
     return m as Extract<Message, { type: T }>;
   }
-  send(command: Command | string) {
+  send(command: Request | string) {
     this.ws.send(
       typeof command === "string" ? command : JSON.stringify(command),
     );
@@ -112,6 +115,10 @@ const codes = [
   "ILLEGAL_HAND",
   "NOT_HIGHER",
 ] as const;
+// Seat 1 stays unnamed; seat 2 takes the widest legal name, then a new one after leaving the lobby.
+const joinNames = ["철수", undefined, "가나다라마바"] as const;
+const rejoinName = "Bob7";
+const naming = (name?: string) => (name === undefined ? {} : { name });
 export abstract class SocketRoom {
   abstract receive(client: Client, data: string): void;
   clients: Client[] = [];
@@ -161,7 +168,10 @@ export class Game extends SocketRoom {
   publics = new Map<number, ReturnType<typeof publicTable>>();
   currentCheck = "ws.open";
   connected?: SeatId;
-  exercised = new Set<ErrorCode>();
+  exercised = new Set<string>();
+  names = new Map<SeatId, string | undefined>();
+  // Every credential ever issued, revoked ones included; only its own holder may see one.
+  issued = new Set<string>();
   constructor(
     origin: string,
     frameMs: number,
@@ -178,7 +188,16 @@ export class Game extends SocketRoom {
       client.previous,
     );
     if (!message) return;
+    requireCheck(!client.left, "frame sent to the leaver");
+    const own =
+      message.type === "SEATED" ? message.token : client.credential?.token;
+    for (const token of this.issued)
+      requireCheck(
+        token === own || !data.includes(token),
+        "foreign seat token in frame",
+      );
     if (message.type === "SEATED") {
+      this.issued.add(message.token);
       if (!this.tokens.has(message.seatId)) {
         requireCheck(
           this.history.every(
@@ -197,6 +216,7 @@ export class Game extends SocketRoom {
     else this.history.length = 0;
     if (message.type === "SNAPSHOT") {
       checkPublic(this.publics, message);
+      checkNames(message.view, this.names);
       if (this.connected !== undefined)
         requireCheck(
           message.view.slots[this.connected]?.isConnected,
@@ -229,15 +249,30 @@ export class Game extends SocketRoom {
       if (i === 0) {
         this.passed("ws.open");
         this.currentCheck = "ws.game";
+        await this.reject(c, "NOT_SEATED", { type: "LEAVE_ROOM" });
+        await this.reject(
+          c,
+          "INVALID_MESSAGE",
+          { type: "CREATE_ROOM", name: "가나다라마바사" },
+          "name.CREATE_ROOM",
+        );
       }
+      if (i === 1)
+        await this.reject(
+          c,
+          "INVALID_MESSAGE",
+          { type: "JOIN_ROOM", roomCode: code, name: "Bob!" },
+          "name.JOIN_ROOM",
+        );
       this.idle();
       const old = [...this.live];
+      const name = joinNames[i];
       await Promise.all([
         this.seat(
           c,
           i === 0
-            ? { type: "CREATE_ROOM" }
-            : { type: "JOIN_ROOM", roomCode: code },
+            ? { type: "CREATE_ROOM", ...naming(name) }
+            : { type: "JOIN_ROOM", roomCode: code, ...naming(name) },
         ),
         ...old.map((p) => p.next("SNAPSHOT")),
       ]);
@@ -245,6 +280,8 @@ export class Game extends SocketRoom {
       const cred = need(c.credential, "missing seat");
       requireCheck(!i || code === cred.roomCode, "joined wrong room");
       code = cred.roomCode;
+      this.names.set(cred.seatId, name);
+      for (const p of this.live) checkNames(this.state(p), this.names);
       const seats = this.live.map(
         (p) => need(p.credential, "missing seat").seatId,
       );
@@ -256,12 +293,115 @@ export class Game extends SocketRoom {
         "unexpected lobby transition",
       );
     }
+    await this.leaveLobby(code);
     this.idle();
     need(
       this.live.find((c) => c.view?.phase === "LOBBY" && c.view.canStart),
       "missing ready host",
     ).send({ type: "START_GAME" });
     await this.snapshots();
+  }
+  // Until forget(), the leaver may only receive replays of revisions it already saw.
+  leave(c: Client) {
+    this.idle();
+    c.left = true;
+    c.send({ type: "LEAVE_ROOM" });
+    return need(c.credential, "missing leaving seat");
+  }
+  forget(c: Client) {
+    c.left = false;
+    c.credential = undefined;
+    c.previous = undefined;
+    c.view = undefined;
+  }
+  async departed(seat: SeatId) {
+    await Promise.all(
+      this.live.map((p) =>
+        p.wait(
+          () =>
+            p.queue.length > 0 || p.view?.slots[seat]?.isConnected === false,
+          "leave broadcast",
+        ),
+      ),
+    );
+  }
+  async leaveLobby(code: string) {
+    this.currentCheck = "leave.lobby";
+    const c = need(this.live.pop(), "missing leaving seat");
+    const old = this.leave(c);
+    this.names.delete(old.seatId);
+    await this.departed(old.seatId);
+    requireCheck(
+      this.live.every((p) => p.queue.length > 0),
+      "left seat not vacated",
+    );
+    await this.snapshots();
+    const remaining = this.live.map((p) => this.id(p));
+    for (const p of this.live) {
+      const v = this.state(p);
+      requireCheck(
+        v.phase === "LOBBY" &&
+          equal(v.seatOrder, remaining) &&
+          v.slots[old.seatId] === null,
+        "left seat not vacated",
+      );
+    }
+    this.idle();
+    this.forget(c);
+    await this.reject(
+      c,
+      "RESUME_DENIED",
+      { type: "RESUME", roomCode: code, token: old.token },
+      "RESUME_DENIED.lobby",
+    );
+    const others = [...this.live];
+    await Promise.all([
+      this.seat(c, { type: "JOIN_ROOM", roomCode: code, name: rejoinName }),
+      ...others.map((p) => p.next("SNAPSHOT")),
+    ]);
+    const cred = need(c.credential, "missing rejoined seat");
+    requireCheck(
+      cred.roomCode === code && cred.token !== old.token,
+      "rejoin reused the revoked credential",
+    );
+    this.live.push(c);
+    this.names.set(cred.seatId, rejoinName);
+    const order = this.live.map((p) => this.id(p));
+    for (const p of this.live) {
+      const v = this.state(p);
+      requireCheck(
+        v.phase === "LOBBY" && equal(v.seatOrder, order),
+        "unexpected rejoin lobby",
+      );
+      checkNames(v, this.names);
+    }
+    this.idle();
+    this.passed("leave.lobby");
+    this.currentCheck = "ws.game";
+  }
+  // Leaving GAME_OVER only disconnects the seat; its name stays (checked on every SNAPSHOT).
+  async leaveFinal(code: string) {
+    this.currentCheck = "leave.final";
+    this.connected = undefined; // that seat may be the one leaving now
+    const c = need(this.live.pop(), "missing leaving seat");
+    const old = this.leave(c);
+    await this.departed(old.seatId);
+    for (const p of this.live) {
+      requireCheck(
+        !p.queue.length,
+        "GAME_OVER leave changed more than presence",
+      );
+      checkFinal(this.state(p));
+    }
+    this.idle();
+    this.forget(c);
+    await this.reject(
+      c,
+      "RESUME_DENIED",
+      { type: "RESUME", roomCode: code, token: old.token },
+      "RESUME_DENIED.final",
+    );
+    this.passed("leave.final");
   }
   async snapshots() {
     await Promise.all(this.live.map((c) => c.next("SNAPSHOT")));
@@ -272,16 +412,21 @@ export class Game extends SocketRoom {
   state(c: Client) {
     return need(c.view, "missing current view");
   }
-  async reject(c: Client, code: ErrorCode, command: Command | string) {
-    if (this.exercised.has(code)) return;
+  async reject(
+    c: Client,
+    code: ErrorCode,
+    command: Request | string,
+    id: string = code,
+  ) {
+    if (this.exercised.has(id)) return;
     this.idle();
     const enclosing = this.currentCheck;
-    this.currentCheck = `reject.${code}`;
+    this.currentCheck = `reject.${id}`;
     c.send(command);
     const error = await c.next("ERROR");
     requireCheck(error.code === code, `expected ERROR(${code})`);
     this.idle();
-    this.exercised.add(code);
+    this.exercised.add(id);
     this.passed(this.currentCheck);
     this.currentCheck = enclosing;
   }
@@ -494,7 +639,7 @@ export class Game extends SocketRoom {
       }
       this.passed("game.final");
       this.currentCheck = "resume.final";
-      for (const c of this.live) {
+      for (const [i, c] of this.live.entries()) {
         this.idle();
         const final = this.state(c),
           cred = need(c.credential, "missing credential");
@@ -512,9 +657,13 @@ export class Game extends SocketRoom {
         );
         this.idle();
         c.close();
+        this.live[i] = fresh;
       }
       this.idle();
       this.passed("resume.final");
+      await this.leaveFinal(
+        need(this.live[0]?.credential, "missing room").roomCode,
+      );
     } finally {
       this.closeAll();
     }

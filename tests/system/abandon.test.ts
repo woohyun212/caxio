@@ -52,6 +52,9 @@ for (const [rng, turnIds] of [
     expect(output).toContain("credential=denied");
     expect(output).toContain("credential=same");
     expect(output).toContain("credential=replaced");
+    expect(output).toMatch(/abandon\.leave PASS ok seat=[23] ranking=/);
+    expect(output).toContain("abandon.leave.revoked PASS ok credential=denied");
+    expect(output).toContain("abandon.leave.new-room PASS ok");
     expect(output).toContain("summary PASS");
     for (const { command, expected } of observed)
       expect(command).toEqual(expected);
@@ -88,6 +91,14 @@ const faults = {
   "silent-active": "abandon.automatic.1 FAIL frame budget exceeded",
   "duplicate-lobby": "duplicate snapshot revision",
   "split-revision": "abandon.third FAIL broadcast revision",
+  "drop-name": "abandon.seating FAIL seat 0 name mismatch",
+  "keep-name": "abandon.lobby.join FAIL seat 0 name mismatch",
+  "leave-ignored": "abandon.leave FAIL frame budget exceeded",
+  "leave-unnamed": "abandon.leave FAIL leave ranking, chips, names or leaver",
+  "leave-chips": "abandon.leave FAIL leave ranking, chips, names or leaver",
+  "leave-notify": "abandon.leave FAIL frame sent to the leaver",
+  "leave-accept": "abandon.leave.revoked FAIL revoked credential in frame",
+  "leave-busy": "abandon.leave.new-room FAIL expected SEATED, received ERROR",
 } satisfies Record<Fault, string>;
 for (const [fault, diagnostic] of Object.entries(faults))
   test(`abandonment probe rejects ${fault}`, async () => {

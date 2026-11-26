@@ -15,7 +15,7 @@ import {
   roomCode,
 } from "../../packages/shared/src/contracts/fixtures";
 import {
-  decodeCommand,
+  decodeRequest,
   decodeServerMessage,
   type ErrorCode,
   HEALTH_PATH,
@@ -55,7 +55,23 @@ export type Fault =
   | "old-play"
   | "elimination"
   | "old-close"
-  | "no-lower";
+  | "no-lower"
+  | "accept-name"
+  | "drop-name"
+  | "resume-name"
+  | "keep-leaver"
+  | "reuse-token"
+  | "notify-leaver"
+  | "accept-left";
+// Lets an invalid name through the decoder, as a server that never checks names would.
+function withoutName(raw: string | Buffer) {
+  try {
+    const { name: _name, ...rest } = JSON.parse(String(raw));
+    return JSON.stringify(rest);
+  } catch {
+    return raw;
+  }
+}
 export function fixture(fault?: Fault) {
   let revision = 0,
     turnId = 0,
@@ -72,12 +88,14 @@ export function fixture(fault?: Fault) {
   const seats: SeatId[] = [],
     bound = new Map<SeatId, Socket>();
   let hands: Tile[][] = [];
+  const names: (string | undefined)[] = [];
   const chips = [64, 64, 64],
     tokens = [
       "protected-credential-alpha",
       "protected-credential-beta",
       "protected-credential-gamma",
-    ];
+    ],
+    revoked: string[] = [];
   const observations = {
     activeResumes: 0,
     finalResumes: [] as SeatId[],
@@ -96,9 +114,11 @@ export function fixture(fault?: Fault) {
     ws.send(raw);
   }
   function view(id: SeatId): PlayerView {
+    // JSON.stringify drops the name of an unnamed seat.
     const slot = (i: SeatId): PublicSeat | null =>
       seats.includes(i)
         ? {
+            name: names[i],
             remainingTileCount: hands[i]?.length ?? 0,
             chips: need(chips[i], "missing chips"),
             isConnected:
@@ -288,12 +308,18 @@ export function fixture(fault?: Fault) {
               code,
             });
             setTimeout(() => send(ws, { type: "ERROR", code }), 5);
-          } else if (code === "RESUME_DENIED" && fault === "accepted-token") {
+          } else if (
+            code === "RESUME_DENIED" &&
+            fault === "accepted-token" &&
+            phase === "TURN_ACTIVE"
+          ) {
             // Inject the wire reply a client would observe if an invalid credential were accepted.
             send(ws, { type: "SEATED", roomCode, seatId: 0, token: token(0) });
           } else send(ws, { type: "ERROR", code });
         };
-        const cmd = decodeCommand(raw);
+        const cmd = decodeRequest(
+          fault === "accept-name" ? withoutName(raw) : raw,
+        );
         if (cmd === "INVALID_MESSAGE") return reject(cmd);
         if (
           cmd.type === "CREATE_ROOM" ||
@@ -309,9 +335,17 @@ export function fixture(fault?: Fault) {
             (cmd.type !== "CREATE_ROOM" && cmd.roomCode !== roomCode)
           )
             return reject("RESUME_DENIED");
-          if (cmd.type !== "RESUME") seats.push(id);
-          else if (phase === "GAME_OVER") observations.finalResumes.push(id);
-          else observations.activeResumes++;
+          if (cmd.type !== "RESUME") {
+            seats.push(id);
+            names[id] =
+              fault === "drop-name" && cmd.type === "JOIN_ROOM"
+                ? undefined
+                : cmd.name;
+          } else {
+            if (fault === "resume-name") names[id] = undefined;
+            if (phase === "GAME_OVER") observations.finalResumes.push(id);
+            else observations.activeResumes++;
+          }
           if (fault === "replaced-notice" && observations.activeResumes === 1) {
             const old = bound.get(id);
             if (old) send(old, { type: "ERROR", code: "NOT_SEATED" });
@@ -352,6 +386,24 @@ export function fixture(fault?: Fault) {
           if (cmd.type === "PLAY")
             observations.replacedPlays.push(...cmd.tiles);
           if (fault !== "old-play") return reject("NOT_SEATED");
+        }
+        if (cmd.type === "LEAVE_ROOM") {
+          if (fault === "notify-leaver") {
+            revision += 2;
+            snapshot(ws);
+          }
+          bound.delete(id);
+          ws.data.id = null;
+          if (phase === "LOBBY" && fault !== "keep-leaver")
+            seats.splice(seats.indexOf(id), 1);
+          if (fault !== (phase === "LOBBY" ? "reuse-token" : "accept-left")) {
+            revoked.push(token(id));
+            tokens[id] = `protected-credential-reissued-${revoked.length}`;
+          }
+          // Delay the others so the leaver's frame lands while the probe still expects silence.
+          if (fault === "notify-leaver") setTimeout(broadcast, 20);
+          else broadcast();
+          return;
         }
         if (cmd.type === "START_GAME") {
           if (id !== seats[0]) return reject("NOT_HOST");
@@ -423,7 +475,9 @@ export function fixture(fault?: Fault) {
   });
   return {
     origin: server.url.origin,
-    tokens,
+    get tokens() {
+      return [...tokens, ...revoked];
+    },
     observations,
     stop: () => server.stop(true),
   };
