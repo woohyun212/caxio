@@ -1,7 +1,14 @@
 import type { Rng, RulesApi } from "@caxio/shared/contracts/engine";
+import type { DEFAULT_TURN_LIMIT_SECONDS } from "@caxio/shared/contracts/settings";
 import type { Assert, Exact } from "@caxio/shared/contracts/type-check";
 import type { Message } from "@caxio/shared/contracts/wire";
 export const DEFAULT_TURN_LIMIT_MS = 30_000;
+export type DefaultTurnLimitCheck = Assert<
+  Exact<
+    `${typeof DEFAULT_TURN_LIMIT_SECONDS}000`,
+    `${typeof DEFAULT_TURN_LIMIT_MS}`
+  >
+>;
 export const SEAT_RESERVATION_MS = 30_000;
 export const ROOM_DISPOSAL_MS = 300_000; // Empty or finished room, plan §9.
 /** Number of consecutive own-turn expiries for a disconnected occupant, the last of which ends the game by abandonment. */
@@ -14,6 +21,9 @@ export interface RoomConnection {
   send(message: Message): void;
 }
 export interface RoomService {
+  // CREATE_ROOM stores each supplied setting or its shared default for the room's lifetime,
+  // including the lobby after abandonment and every restart. Project maxRounds and turnLimitSeconds
+  // in every phase to every recipient (including OUT). Pass the room's maxRounds to startRound.
   // Accepted CREATE_ROOM/JOIN_ROOM/RESUME sends SEATED before the requester's first SNAPSHOT, which needs a bound seat.
   // START_GAME/PLAY/PASS require a seat (NOT_SEATED), then the command's phase (INVALID_PHASE), before turn checks.
   // A bound active-turn request checks stale ID, expiry, seat, ownership, duplication, legality, count, then strength.
@@ -52,7 +62,8 @@ export interface RoomDependencies {
   schedule(delayMs: number, callback: () => void): () => void;
   // Room tests observe this exclusive send path; HTTP adapter tests observe RoomConnection.send.
   send(connection: RoomConnection, message: Message): void;
-  // Defaults to DEFAULT_TURN_LIMIT_MS.
+  // Each deadline uses explicit CREATE_ROOM.turnLimitSeconds × 1000 when supplied.
+  // Otherwise use this dependency or DEFAULT_TURN_LIMIT_MS; the public setting remains the shared default.
   turnLimitMs?: number;
 }
 export type CreateRoomService = (deps: RoomDependencies) => RoomService;

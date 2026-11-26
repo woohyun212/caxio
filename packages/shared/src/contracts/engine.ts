@@ -42,7 +42,7 @@ export interface SettlementRules {
   isGameOver: IsGameOver;
 }
 export const INITIAL_CHIPS = 64;
-export const DEFAULT_MAX_ROUNDS = 5;
+export { DEFAULT_MAX_ROUNDS } from "./settings";
 /** First deal for 3–5 distinct seats in join order. Round 1 starts at 64 chips each, default five rounds.
  * startRound takes no turn-id seed and always returns turnId: 0. For a later game in the same room,
  * the room sets turnId on the returned state to its last issued id before the first commit.

@@ -1582,3 +1582,24 @@ export const leaveExamples = {
     },
   },
 } as const;
+
+const roomSettings = { turnLimitSeconds: 45, maxRounds: 3 } as const;
+export const configuredRoom = {
+  create: { type: "CREATE_ROOM", name: "별", ...roomSettings },
+  lobby: snap({ ...lobby(order, 0), ...roomSettings }, 3),
+  active: snap(
+    { ...active, ...roomSettings, deadline: epoch + 45_000 },
+    5,
+    epoch,
+  ),
+  ended: snap(
+    {
+      ...ended,
+      ...roomSettings,
+      round: 3,
+      lastSettlement: { ...summary, round: 3 },
+      ownSettlement: { ...paid.ownSettlement, round: 3 },
+    },
+    195,
+  ),
+} as const;

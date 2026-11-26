@@ -1,4 +1,5 @@
 import type { Preview, SeatId, Tile } from "@caxio/shared/contracts/domain";
+import type { RoomSettings } from "@caxio/shared/contracts/settings";
 import type { Assert, Exact } from "@caxio/shared/contracts/type-check";
 import type {
   Command,
@@ -37,7 +38,7 @@ export interface ClientModel {
 export interface ClientActions {
   // name is the trimmed entry input when isPlayerName accepts it; an empty input omits it (seatLabel display).
   // Each request puts it on CREATE_ROOM/JOIN_ROOM as given. The UI remembers it in localStorage caxio.name.
-  createRoom(name?: string): void;
+  createRoom(name?: string, settings?: RoomSettings): void;
   joinRoom(roomCode: string, name?: string): void;
   resume(): void;
   startGame(): void;
@@ -59,6 +60,7 @@ export interface ClientSession extends ClientActions {
   dispose(): void;
 }
 export type ClientEffect =
+  | { type: "MY_TURN"; turnId: number }
   | { type: "PLAY"; turnId: number }
   | { type: "SETTLEMENT"; round: number };
 export interface ClientDependencies {
@@ -74,10 +76,11 @@ export interface ClientDependencies {
   };
   monotonicNow(): number;
   // Abandonment emits no effect. Settlement rounds are per game: the next game’s round-1 settlement sounds once.
+  // MY_TURN fires once per newly observed own TURN_ACTIVE turnId, never for another seat.
   // Called only for new audible events while unmuted; first/resume snapshots establish a silent baseline.
   effects(events: readonly ClientEffect[]): void;
 }
-// Construction opens no socket. Assembly calls resume() once at startup; without a stored credential it does nothing.
+// Construction opens no socket. At startup a room link resumes matching credentials or joins its room. Without a link assembly calls resume() once; without a stored credential it does nothing.
 // After an unexpected close with a credential, the session opens a new socket and retries RESUME.
 export type CreateClientSession = (deps: ClientDependencies) => ClientSession;
 export interface AudioEffects {
@@ -202,7 +205,7 @@ export type ClientContractCheck = Assert<
         } | null;
       },
       {
-        createRoom(name?: string): void;
+        createRoom(name?: string, settings?: RoomSettings): void;
         joinRoom(roomCode: string, name?: string): void;
         resume(): void;
         startGame(): void;
@@ -226,7 +229,11 @@ export type ClientContractCheck = Assert<
         monotonicNow(): number;
         effects(events: readonly ClientEffect[]): void;
       },
-      { type: "PLAY"; turnId: number } | { type: "SETTLEMENT"; round: number },
+      (
+        | { type: "MY_TURN"; turnId: number }
+        | { type: "PLAY"; turnId: number }
+        | { type: "SETTLEMENT"; round: number }
+      ),
       (deps: ClientDependencies) => ClientSession,
       (createContext: () => AudioContext) => AudioEffects,
       {

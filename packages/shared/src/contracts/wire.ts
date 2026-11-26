@@ -10,6 +10,12 @@ import type {
   Slots,
   Tile,
 } from "./domain";
+import {
+  isMaxRounds,
+  isTurnLimitSeconds,
+  type RoomSettings,
+  type TurnLimitSeconds,
+} from "./settings";
 export const WS_PATH = "/ws";
 // GET HEALTH_PATH returns 200 with body "ok"; the probe asserts status 200 only.
 export const HEALTH_PATH = "/healthz";
@@ -63,7 +69,7 @@ export type Credential = Readonly<{ roomCode: string; token: string }>;
 // Omit name for an unnamed seat. The seat keeps it until it is vacated; RESUME keeps the stored name.
 type Naming = { name?: string };
 export type Command =
-  | ({ type: "CREATE_ROOM" } & Naming)
+  | ({ type: "CREATE_ROOM" } & Naming & RoomSettings)
   | ({ type: "JOIN_ROOM"; roomCode: string } & Naming)
   | ({ type: "RESUME" } & Credential)
   | { type: "START_GAME" }
@@ -100,6 +106,7 @@ type TableFields = Readonly<{
   activePlayers: readonly SeatId[];
   consecutivePasses: number;
   maxRounds: number;
+  turnLimitSeconds?: TurnLimitSeconds;
   // Trick clear empties tableHand; the settlement snapshot still holds the winning PLAY.
   tableHand: readonly Tile[] | null;
   lastPlay: LastPlay | null;
@@ -226,7 +233,13 @@ function request(v: unknown): v is Request {
   if (!record(v)) return false;
   switch (v.type) {
     case "CREATE_ROOM":
-      return onlyKeys(v, ["type", "name"]) && named(v);
+      return (
+        onlyKeys(v, ["type", "name", "turnLimitSeconds", "maxRounds"]) &&
+        named(v) &&
+        (!Object.hasOwn(v, "turnLimitSeconds") ||
+          isTurnLimitSeconds(v.turnLimitSeconds)) &&
+        (!Object.hasOwn(v, "maxRounds") || isMaxRounds(v.maxRounds))
+      );
     case "START_GAME":
     case "LEAVE_ROOM":
       return onlyKeys(v, ["type"]);
@@ -443,6 +456,7 @@ const fields = [
   "activePlayers",
   "consecutivePasses",
   "maxRounds",
+  "turnLimitSeconds",
   "tableHand",
   "lastPlay",
   "lastAction",
@@ -481,6 +495,8 @@ function validView(v: unknown, recipient: SeatId): v is PlayerView {
   if (!lobby && !start && !running && !paid) return false;
   if (
     !integer(v.maxRounds, 1) ||
+    (Object.hasOwn(v, "turnLimitSeconds") &&
+      !isTurnLimitSeconds(v.turnLimitSeconds)) ||
     !integer(v.round, lobby ? 0 : 1, lobby ? 0 : v.maxRounds) ||
     !integer(v.consecutivePasses, 0, start || lobby ? 0 : 4)
   )
