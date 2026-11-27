@@ -6,18 +6,21 @@ import { createInterface } from "node:readline";
 import { rules } from "@caxio/shared";
 import type { Action, GameState, SeatId } from "@caxio/shared/contracts/domain";
 import {
+  chatFrames,
   epoch,
   turnErrorExamples,
   turnValidationOrder,
 } from "@caxio/shared/contracts/fixtures";
 import type { RoomSettings } from "@caxio/shared/contracts/settings";
 import {
+  decodeChatMessage,
   decodeCommand,
   decodeServerMessage,
   type ErrorCode,
   isRoomCode,
   type Message,
   type Seated,
+  type ServerMessage,
   type Snapshot,
   WS_PATH,
 } from "@caxio/shared/contracts/wire";
@@ -55,13 +58,12 @@ class Client {
     this.closed = new Promise((resolve) =>
       this.ws.addEventListener("close", () => resolve(), { once: true }),
     );
-    this.reader = new ReadableStream<Message>({
+    this.reader = new ReadableStream<ServerMessage>({
       start: (controller) => {
         this.ws.onmessage = ({ data }) => {
-          const message = decodeServerMessage(
-            data,
-            this.credential?.seatId ?? null,
-          );
+          const message =
+            decodeChatMessage(data) ??
+            decodeServerMessage(data, this.credential?.seatId ?? null);
           if (message === "INVALID_MESSAGE") {
             this.invalidFrame = true;
             controller.error(Error("Invalid server frame"));
@@ -208,6 +210,33 @@ function fixtureShuffle() {
   let end = 35;
   return () => (end-- === 32 ? 1.5 / 33 : 0.999999);
 }
+
+test("real sockets deliver room chat and keep the sender open after rate limiting", async () => {
+  await atTable({ now: () => epoch }, async (table) => {
+    await table.lobby(2);
+    const sender = need(table.seats[1]);
+    const otherRoom = await table.open();
+    await otherRoom.bind({ type: "CREATE_ROOM" });
+    const unseated = await table.open();
+    await unseated.reject(chatFrames.request, "NOT_SEATED");
+    await sender.reject(
+      { ...chatFrames.request, seatId: 0 },
+      "INVALID_MESSAGE",
+    );
+    for (let i = 0; i < 5; i++) {
+      const text = `chat ${i}`;
+      sender.send({ type: "CHAT", text });
+      for (const c of table.seats)
+        expect(await c.next()).toEqual({ type: "CHAT", seatId: 1, text });
+    }
+    sender.send(chatFrames.request);
+    expect(await sender.next()).toEqual(chatFrames.rateLimited);
+    // The next response on each ordered stream also detects any stray delivery.
+    await Promise.all(
+      table.sockets.map((c) => c.reject("?", "INVALID_MESSAGE")),
+    );
+  });
+});
 
 for (const timerFirst of [false, true]) {
   for (const example of deadlines.cases) {

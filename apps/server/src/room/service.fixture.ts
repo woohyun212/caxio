@@ -7,10 +7,11 @@ import {
 } from "@caxio/shared/contracts/fixtures";
 import type { RoomSettings } from "@caxio/shared/contracts/settings";
 import {
+  decodeChatMessage,
   decodeCommand,
   decodeServerMessage,
   type ErrorCode,
-  type Message,
+  type ServerMessage,
   type Snapshot,
 } from "@caxio/shared/contracts/wire";
 import type { RoomConnection } from "../contracts";
@@ -36,7 +37,7 @@ export function harness(
   const sockets = new Map<string, RoomConnection>();
   const names = new Map<RoomConnection, string>();
   const recipients = new Map<RoomConnection, SeatId>();
-  const log: { name: string; message: Message }[] = [];
+  const log: { name: string; message: ServerMessage }[] = [];
   let credentialDelivery:
     | { connection: RoomConnection; token: string | undefined }
     | undefined;
@@ -123,6 +124,13 @@ export function harness(
           /fixture-|"(players|roundLeader|lastPlayedBy|details|payments|eliminatedRound|eliminatedEffectiveTiles|undealt|token)":/,
         );
       }
+      log.push({ name: at(names.get(conn)), message });
+    },
+    sendChat(conn, message) {
+      expect(decodeChatMessage(JSON.stringify(message))).toEqual(message);
+      expect(Object.keys(message).sort()).toEqual(
+        message.type === "CHAT" ? ["seatId", "text", "type"] : ["code", "type"],
+      );
       log.push({ name: at(names.get(conn)), message });
     },
   });

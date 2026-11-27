@@ -4,7 +4,9 @@ import {
   DEFAULT_TURN_LIMIT_SECONDS,
 } from "@caxio/shared/contracts/settings";
 import {
-  decodeRequest,
+  CHAT_RATE_LIMIT_COUNT,
+  CHAT_RATE_LIMIT_WINDOW_MS,
+  decodeClientRequest,
   type ErrorCode,
   isRoomCode,
 } from "@caxio/shared/contracts/wire";
@@ -22,6 +24,8 @@ const seats: readonly SeatId[] = [0, 1, 2, 3, 4];
 const MAX_LIVE_ROOMS = 1_000;
 const MAX_LOOKUP_MISSES = 5;
 export const createRoomService: CreateRoomService = (deps) => {
+  const sendChat: NonNullable<typeof deps.sendChat> =
+    deps.sendChat ?? ((connection, message) => connection.send(message));
   const rooms = new Map<string, Room>();
   const bindings = new Map<RoomConnection, { room: Room; seat: Occupant }>();
   const replaced = new WeakSet<RoomConnection>();
@@ -206,11 +210,12 @@ export const createRoomService: CreateRoomService = (deps) => {
     now: number,
     name: string | undefined,
   ) {
-    const seat = {
+    const seat: Occupant = {
       id,
       token: deps.newToken(),
       connection: null,
       disconnectedTurns: 0,
+      chatTimes: [],
       name,
     };
     room.occupants.set(room.nextJoin++, seat);
@@ -219,7 +224,7 @@ export const createRoomService: CreateRoomService = (deps) => {
   return {
     receive(connection, frame) {
       const now = deps.now();
-      const command = decodeRequest(frame);
+      const command = decodeClientRequest(frame);
       const error = (code: ErrorCode) => {
         if (code === "ROOM_NOT_FOUND" || code === "RESUME_DENIED")
           lookupMisses.set(connection, (lookupMisses.get(connection) ?? 0) + 1);
@@ -234,6 +239,31 @@ export const createRoomService: CreateRoomService = (deps) => {
       if (replaced.has(connection)) return error("NOT_SEATED");
       const bound = bindings.get(connection);
       switch (command.type) {
+        case "CHAT": {
+          if (!bound) return error("NOT_SEATED");
+          const { room, seat } = bound;
+          seat.chatTimes = seat.chatTimes.filter(
+            (time) => time > now - CHAT_RATE_LIMIT_WINDOW_MS,
+          );
+          // Retain future timestamps across a backwards clock adjustment until their window expires.
+          if (
+            seat.chatTimes.filter((time) => time <= now).length >=
+            CHAT_RATE_LIMIT_COUNT
+          )
+            return sendChat(connection, {
+              type: "CHAT_ERROR",
+              code: "CHAT_RATE_LIMITED",
+            });
+          seat.chatTimes.push(now);
+          const message = {
+            type: "CHAT",
+            seatId: seat.id,
+            text: command.text,
+          } as const;
+          for (const occupant of room.occupants.values())
+            if (occupant.connection) sendChat(occupant.connection, message);
+          return;
+        }
         case "CREATE_ROOM": {
           if (bound) return error("INVALID_PHASE");
           if (rooms.size >= MAX_LIVE_ROOMS) return error("ROOM_FULL");

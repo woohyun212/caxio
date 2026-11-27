@@ -21,6 +21,7 @@ export interface Occupant {
   id: SeatId;
   token: string;
   disconnectedTurns: number;
+  chatTimes: number[];
   connection: RoomConnection | null;
   name?: string;
   // Explicit leave revoked the credential; the seat is vacated when the room next holds a lobby.
