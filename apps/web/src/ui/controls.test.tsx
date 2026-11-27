@@ -1971,13 +1971,13 @@ test("seated screens show literal chat, own/fallback labels and the sender-only 
     leaveExamples.game.after[0].frame.view,
   ]) {
     const html = render(props(view, patch, 1));
-    expect(html).toContain(
-      'data-own="true"><span class="gc-chat-name" dir="auto">名字</span><span>(나)</span>',
-    );
-    expect(html).toContain(">&lt;b&gt;hi&lt;/b&gt;</span>");
-    expect(html).toContain(
-      'data-own="false"><span class="gc-chat-name" dir="auto">2번</span>',
-    );
+    const lines = [
+      ...html.matchAll(/<li data-own="(true|false)">(.*?)<\/li>/g),
+    ].map(([, own, line]) => [own, line?.replace(/<[^>]+>/g, "")]);
+    expect(lines).toEqual([
+      ["true", "名字 (나): &lt;b&gt;hi&lt;/b&gt;"],
+      ["false", "2번: かな"],
+    ]);
     expect(html).toContain('aria-describedby="gc-chat-error"');
     expect(html).toContain(
       `</form><div role="status" id="gc-chat-error">${errorText("CHAT_RATE_LIMITED")}</div>`,
@@ -2082,6 +2082,8 @@ test("wide chat signals fresh deliveries, opens in one action and stays read aft
     expect(screens[0]).not.toContain("읽지 않음");
     expect(screens[1]).toContain("방 채팅 · 읽지 않음");
     expect(screens[1]?.includes("gc-chat-toast")).toBe(priority === "other");
+    if (priority === "other")
+      expect(screens[1]?.replace(/<[^>]+>/g, "")).toContain("名字: 받았어요");
     expect(screens[2]).toContain(
       'aria-expanded="true" aria-controls="gc-chat"',
     );
