@@ -4,6 +4,8 @@ import {
   abandonmentLobbyResume,
   abandonmentRestart,
   abandonmentResults,
+  chatFrames,
+  chatTextExamples,
   deadlines,
   dealExamples,
   effectBatches,
@@ -12,6 +14,7 @@ import {
   lastPlaySequence,
   leaveExamples,
   lostResume,
+  namedViews,
   newRoomSequence,
   nonHostAbandonmentLobby,
   phaseExamples,
@@ -1068,6 +1071,8 @@ test("names ride on create and join, and leaving revokes the seat and returns to
     pending: null,
     errorCode: null,
     credential: null,
+    chat: [],
+    chatErrorCode: null,
     muted: true,
   });
   host.frame(after[0].frame);
@@ -1107,4 +1112,138 @@ test("only CREATE_ROOM carries its supplied settings", () => {
   expect(h.latest().sent).toEqual([
     { type: "JOIN_ROOM", roomCode, name: "별" },
   ]);
+});
+
+test("chat requires an open seated socket, trims valid bodies and waits for an echo", () => {
+  const h = harness();
+  const send = required(h.session.sendChat);
+  h.session.joinRoom(roomCode);
+  const s = h.latest();
+  send("early");
+  expect(s.sent).toHaveLength(0);
+  s.events.open();
+  s.frame(chatFrames.delivery);
+  s.frame(chatFrames.rateLimited);
+  expect(h.session.getState()).toMatchObject({ chat: [], chatErrorCode: null });
+  send("unseated");
+  expect(s.sent).toHaveLength(1);
+  s.frame(newRoomSequence.previous);
+  for (const text of chatTextExamples.invalid)
+    if (typeof text === "string" && text.trim() === text) send(text);
+  expect(s.sent).toHaveLength(1);
+  for (const text of chatTextExamples.valid) {
+    send(`  ${text}　`);
+    expect<unknown>(s.sent.at(-1)).toEqual({ type: "CHAT", text });
+  }
+  expect(h.session.getState().chat).toEqual([]);
+  s.events.close();
+  // A seat alone cannot authorize a write before the replacement socket opens.
+  h.latest().frame(newRoomSequence.previous);
+  send("closed");
+  expect(h.latest().sent).toBeEmpty();
+});
+
+test("chat retains receipt-time names and a bounded arrival order, independent of game state", () => {
+  const h = harness();
+  const s = h.enter(namedViews.lobby.frame);
+  h.session.startGame();
+  s.frame({ ...chatFrames.delivery, seatId: 9 });
+  const before = h.session.getState();
+  expect(before.pending?.type).toBe("START_GAME");
+  expect(before.errorCode).toBe("INVALID_MESSAGE");
+  expect(before.chat).toEqual([]);
+  s.frame(chatFrames.delivery);
+  s.frame(chatFrames.rateLimited);
+  h.session.sendChat?.(" ");
+  expect(h.session.getState()).toEqual({
+    ...before,
+    chat: [{ seatId: 0, name: "철수", text: "<b>hi</b>" }],
+    chatErrorCode: "CHAT_RATE_LIMITED",
+  });
+  h.session.sendChat?.(" ok ");
+  expect(h.session.getState().chatErrorCode).toBeNull();
+  expect(h.session.getState().pending).toBe(before.pending);
+  expect(h.session.getState().errorCode).toBe(before.errorCode);
+  s.frame({
+    ...namedViews.lobby.frame,
+    revision: 6,
+    view: {
+      ...namedViews.lobby.frame.view,
+      slots: namedViews.lobby.frame.view.slots.map((v, i) =>
+        i === 0 ? { ...v, name: "かな" } : v,
+      ),
+    },
+  });
+  s.frame(chatFrames.delivery);
+  expect(h.session.getState().chat?.map((e) => e.name)).toEqual([
+    "철수",
+    "かな",
+  ]);
+  for (let i = 0; i < 52; i++)
+    s.frame({ type: "CHAT", seatId: 1, text: String(i) });
+  expect(h.session.getState().chat).toEqual(
+    Array.from({ length: 50 }, (_, i) => ({ seatId: 1, text: String(i + 2) })),
+  );
+});
+
+test("chat and its send error survive same-room recovery and clear on leave, denial or a new room", () => {
+  for (const reset of ["leave", "denied", "create"]) {
+    const h = harness();
+    const s = h.enter(namedViews.lobby.frame);
+    s.frame(chatFrames.delivery);
+    s.frame(chatFrames.rateLimited);
+    const chat = h.session.getState().chat;
+    s.frame({
+      ...deadlines.before,
+      revision: namedViews.lobby.frame.revision + 1,
+    });
+    expect(h.session.getState().view?.phase).toBe("TURN_ACTIVE");
+    expect(h.session.getState().chat).toBe(chat);
+    s.events.close();
+    h.latest().events.close();
+    expect(h.session.getState().chat).toBe(chat);
+    h.session.resume();
+    const resumed = h.latest();
+    resumed.events.open();
+    if (reset === "denied")
+      resumed.frame({ type: "ERROR", code: "RESUME_DENIED" });
+    else {
+      resumed.frame(newRoomSequence.previous);
+      resumed.frame(namedViews.lobby.frame);
+      expect(h.session.getState()).toMatchObject({
+        chat,
+        chatErrorCode: "CHAT_RATE_LIMITED",
+      });
+      if (reset === "leave") h.session.leaveRoom?.();
+      else h.session.createRoom();
+    }
+    expect(h.session.getState()).toMatchObject({
+      chat: [],
+      chatErrorCode: null,
+    });
+  }
+});
+
+test("room actions normalize an optional name and reject forbidden input before opening a socket", () => {
+  for (const type of ["CREATE_ROOM", "JOIN_ROOM"]) {
+    const h = harness();
+    const enter = (name: string) =>
+      type === "CREATE_ROOM"
+        ? h.session.createRoom(name)
+        : h.session.joinRoom(roomCode, name);
+    enter("금지!");
+    expect(h.sockets).toBeEmpty();
+    for (const [input, name] of [
+      [" Jose\u0301　", "José"],
+      ["　", undefined],
+    ] as const) {
+      enter(input);
+      h.latest().events.open();
+      expect<unknown>(h.latest().sent.at(-1)).toEqual({
+        type,
+        ...(type === "JOIN_ROOM" && { roomCode }),
+        ...(name && { name }),
+      });
+    }
+  }
 });

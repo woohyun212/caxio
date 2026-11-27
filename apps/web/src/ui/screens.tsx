@@ -17,6 +17,7 @@ import {
 import { type ReactNode, useState } from "react";
 import type { GameControlsProps } from "../contracts";
 import { seatLabel } from "../visual/layout";
+import { Chat } from "./chat";
 import { settlementCounts } from "./settlement";
 import {
   activate,
@@ -201,11 +202,13 @@ export function Lobby({
   model,
   view,
   startGame,
+  sendChat,
   leaveRoom,
   message,
 }: {
   model: GameControlsProps["model"];
   view: Extract<PlayerView, { phase: "LOBBY" }>;
+  sendChat?: GameControlsProps["sendChat"];
   startGame: () => void;
   leaveRoom?: () => void;
   message: string;
@@ -266,13 +269,14 @@ export function Lobby({
       <ul className="gc-lobby-seats" aria-label="현재 좌석">
         {view.slots.map((s, id) => (
           <li key={seatLabel(id)}>
-            {seatName(view, id)}{" "}
+            <span className="gc-seat-name">{seatName(view, id)}</span>{" "}
             {s ? (s.isConnected ? "접속" : "복귀 대기") : "빈자리"}{" "}
             {id === view.hostSeatId ? "방장" : ""}{" "}
             {id === model.seatId ? "나" : ""}
           </li>
         ))}
       </ul>
+      <Chat model={model} sendChat={sendChat} />
       <div className="gc-lobby-actions">
         <div id="gc-start-reason">
           {host ? reason : "방장의 시작을 기다려 주세요"}
@@ -306,7 +310,11 @@ export function Lobby({
           <ol>
             {last.ranking.map(({ seatId, rank, chips, name }) => (
               <li key={seatId}>
-                {rank}위 {name ?? seatLabel(seatId)} {chips}칩
+                {rank}위{" "}
+                <span className="gc-seat-name">
+                  {name ?? seatLabel(seatId)}
+                </span>{" "}
+                {chips}칩
               </li>
             ))}
           </ol>
@@ -393,7 +401,9 @@ export function Panel({
               .map((r) => (
                 <div key={r.seatId}>
                   {r.rank === 1 ? <u>1위</u> : `${r.rank}위`}{" "}
-                  {seatName(view, r.seatId)}
+                  <span className="gc-seat-name">
+                    {seatName(view, r.seatId)}
+                  </span>
                   {seatId === r.seatId ? "(나)" : ""}{" "}
                   {counts?.[r.seatId] !== undefined
                     ? `${counts[r.seatId]}장 `
@@ -457,7 +467,9 @@ export function EndScreen({
       <strong>{reason}</strong>
       {view.ranking.map((r) => (
         <div key={r.seatId}>
-          {r.rank}위 {seatName(view, r.seatId)} {view.slots[r.seatId]?.chips}칩{" "}
+          {r.rank}위{" "}
+          <span className="gc-seat-name">{seatName(view, r.seatId)}</span>{" "}
+          {view.slots[r.seatId]?.chips}칩{" "}
           {view.slots[r.seatId]?.isOut ? "탈락" : ""}{" "}
           {r.seatId === seatId ? "▶ 나" : ""}
         </div>

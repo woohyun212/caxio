@@ -5,7 +5,6 @@ import type {
 } from "@caxio/shared/contracts/domain";
 import {
   ABANDONMENT_NOTICE,
-  isPlayerName,
   isRoomCode,
   type PlayerView,
 } from "@caxio/shared/contracts/wire";
@@ -62,13 +61,11 @@ export function confirmsLeave(view: PlayerView, seatId: number | null) {
     !self.isOut
   );
 }
-export const nameHint = "이름은 한글·영문·숫자로 6자까지 쓸 수 있어요.";
+export const nameHint =
+  "이름에는 공백 없이 글자·숫자·이모지를 6자까지 쓸 수 있어요.";
 const nameKey = "caxio.name";
-/** The trimmed entry name, undefined when empty, false when the server would reject it. */
-export function entryName(input: string): string | undefined | false {
-  const name = input.trim();
-  return !name ? undefined : isPlayerName(name) ? name : false;
-}
+
+export { entryName } from "../client/name";
 // localStorage may be missing or throw; the name is only a convenience.
 export function recallName() {
   try {

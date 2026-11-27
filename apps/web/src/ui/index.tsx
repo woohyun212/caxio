@@ -8,9 +8,14 @@ import {
   useRef,
   useState,
 } from "react";
-import type { GameControlsComponent, GameControlsProps } from "../contracts";
+import type {
+  ChatEntry,
+  GameControlsComponent,
+  GameControlsProps,
+} from "../contracts";
 import { handOrder, type Mode, seatLabel } from "../visual/layout";
 import { frame, palette, sceneZones, stage, tile } from "../visual/tokens";
+import { Chat, ChatLine } from "./chat";
 import { Action, EndScreen, Entry, Lobby, Panel } from "./screens";
 import {
   abandonmentNotice,
@@ -32,6 +37,7 @@ import {
 } from "./state";
 import { box, Seats, Tiles } from "./tiles";
 import "./controls.css";
+import "./chat.css";
 
 type GameView = Exclude<PlayerView, { phase: "LOBBY" }>;
 function Board({
@@ -39,7 +45,15 @@ function Board({
   view,
   mode,
   seenTurn,
+  chatOpen,
+  toggleChat,
+  unread,
+  toast,
 }: {
+  chatOpen: boolean;
+  toggleChat: () => void;
+  unread: boolean;
+  toast: ChatEntry | null;
   props: GameControlsProps;
   view: GameView;
   mode: Mode;
@@ -170,6 +184,17 @@ function Board({
     (model.errorCode !== null
       ? errorText(model.errorCode)
       : notice || (out || end ? "" : lock.standing));
+  const chatNotice =
+    wide &&
+    unread &&
+    !ownTurn &&
+    !outage(model) &&
+    !model.errorCode &&
+    !model.pending &&
+    left !== 0 &&
+    !notice
+      ? toast
+      : null;
   const compactDeal = !wide && message && message === dealText(view);
   const summary = describe(result);
   const reasonId = (reason: string) =>
@@ -229,6 +254,18 @@ function Board({
         <span role="timer" className="gc-time">
           {time}
         </span>
+        {wide && (
+          <button
+            type="button"
+            className="gc-chat-toggle"
+            aria-label={unread ? "방 채팅 · 읽지 않음" : "방 채팅"}
+            aria-expanded={chatOpen}
+            aria-controls={chatOpen ? "gc-chat" : undefined}
+            onClick={toggleChat}
+          >
+            채팅{unread && " ●"}
+          </button>
+        )}
         <span className="gc-round">
           R{view.round}/{view.maxRounds}
         </span>
@@ -309,6 +346,7 @@ function Board({
         </span>
         <span
           id="gc-live-text"
+          className={chatNotice ? "gc-sr" : undefined}
           key={
             notice && message === notice ? view.lastAction?.turnId : "status"
           }
@@ -321,6 +359,14 @@ function Board({
             message
           )}
         </span>
+        {chatNotice && (
+          <span className="gc-chat-toast">
+            <ChatLine
+              entry={chatNotice}
+              own={chatNotice.seatId === model.seatId}
+            />
+          </span>
+        )}
       </div>
       <div className="gc-command">
         <span className="gc-self">
@@ -366,6 +412,22 @@ function Board({
           </>
         )}
       </div>
+      {(!wide || chatOpen) && (
+        <Chat
+          model={model}
+          sendChat={props.sendChat}
+          close={
+            wide
+              ? () => {
+                  toggleChat();
+                  root.current
+                    ?.querySelector<HTMLButtonElement>(".gc-chat-toggle")
+                    ?.focus();
+                }
+              : undefined
+          }
+        />
+      )}
       {end && (
         <EndScreen
           view={view}
@@ -436,6 +498,50 @@ export const GameControls: GameControlsComponent<ReactElement> = (props) => {
   useLayoutEffect(() => {
     document.title = ownTurn ? "▶ 내 차례 · caxio" : "caxio";
   }, [ownTurn]);
+  const latest = props.model.chat?.at(-1);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [read, setRead] = useState(latest);
+  const [expired, setExpired] = useState<ChatEntry>();
+  const inline = !wide || view?.phase === "LOBBY";
+  const canOpenChat = !!view && !inline && !chatOpen;
+  useEffect(() => {
+    if (!canOpenChat) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (
+        e.key !== "Enter" ||
+        e.defaultPrevented ||
+        e.repeat ||
+        e.isComposing ||
+        e.altKey ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.shiftKey ||
+        (e.target instanceof Element &&
+          e.target.closest(
+            `input, textarea, select, button, a, summary, [contenteditable],
+             [role~=button], [role~=link], [role~=menu], [role~=menubar], [role~=menuitem],
+             [role~=menuitemradio], [role~=menuitemcheckbox], [role~=tab], [role~=tablist],
+             [role~=tree], [role~=treeitem], [role~=grid], [role~=treegrid], [role~=gridcell],
+             [role~=listbox], [role~=option], [role~=combobox], [role~=textbox], [role~=searchbox],
+             [role~=checkbox], [role~=radio], [role~=radiogroup], [role~=switch]`,
+          ))
+      )
+        return;
+      e.preventDefault();
+      setChatOpen(true);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [canOpenChat]);
+  const unread = !!latest && latest !== read && !chatOpen && !inline;
+  if ((!latest || inline || chatOpen) && read !== latest) setRead(latest);
+  if (chatOpen && (!view || inline)) setChatOpen(false);
+  if (!latest && expired) setExpired(undefined);
+  useEffect(() => {
+    if (!unread || !latest) return;
+    const timer = setTimeout(() => setExpired(latest), 3000);
+    return () => clearTimeout(timer);
+  }, [latest, unread]);
   const [previous, setPrevious] = useState(props.model);
   const [announcement, setAnnouncement] = useState("");
   if (previous !== props.model) {
@@ -482,6 +588,10 @@ export const GameControls: GameControlsComponent<ReactElement> = (props) => {
       ) : (
         <Board
           key={token}
+          chatOpen={chatOpen}
+          toggleChat={() => setChatOpen(!chatOpen)}
+          unread={unread}
+          toast={unread && latest !== expired ? latest : null}
           seenTurn={
             memory.current?.token === token ? memory.current?.turn : undefined
           }

@@ -743,10 +743,10 @@ test("next-deal settlement retains the public counts only for a tab that saw set
   const h = harness();
   h.seated(paid);
   h.socket().receive(next);
-  expect(markup(h.session)).toContain("1번(나) 0장 +3칩 67칩");
+  expect(markup(h.session)).toContain("1번</span>(나) 0장 +3칩 67칩");
   const returning = harness(undefined, true);
   returning.seated(next);
-  expect(markup(returning.session)).toContain("1번(나) +3칩 67칩");
+  expect(markup(returning.session)).toContain("1번</span>(나) +3칩 67칩");
 });
 
 test("the link value stays editable on rejection and leaving preserves other address components", () => {
