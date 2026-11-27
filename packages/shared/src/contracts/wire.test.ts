@@ -3,6 +3,7 @@ import type { SeatId, Tile } from "./domain";
 import * as fixtures from "./fixtures";
 import type { Message, Snapshot } from "./wire";
 import {
+  CHAT_ERROR_TEXT,
   decodeCommand,
   decodeServerMessage,
   ERROR_TEXT,
@@ -188,6 +189,7 @@ test("error vocabulary and triggers match all visual-spec rows in order", async 
   );
   expect(rows).toEqual([
     ...Object.entries(ERROR_TEXT),
+    ...Object.entries(CHAT_ERROR_TEXT),
     ["기타", UNKNOWN_ERROR_TEXT],
   ]);
   expect(Object.keys(ERROR_TEXT)).toEqual(

@@ -7,6 +7,9 @@ import type {
   Tile,
 } from "./domain";
 import type {
+  ChatError,
+  ChatMessage,
+  ChatRequest,
   Command,
   ErrorCode,
   LastGameResult,
@@ -1344,7 +1347,59 @@ export const abandonmentRestart = {
   ],
 } as const;
 
-// Names and explicit leaving (docs/lexio-rules.md §5–6). Clients trim entry input; the wire never does.
+export {
+  CHAT_RATE_LIMIT_COUNT,
+  CHAT_RATE_LIMIT_WINDOW_MS,
+  CHAT_TEXT_MAX_CODE_UNITS,
+  CHAT_TEXT_MAX_LENGTH,
+  PLAYER_NAME_MAX_CODE_UNITS,
+  PLAYER_NAME_MAX_LENGTH,
+} from "./wire";
+
+const family = "👨‍👩‍👧‍👦";
+const forbiddenTextExamples = [
+  "",
+  " ",
+  "\u00A0",
+  "a\u00A0b",
+  "\u3000",
+  "a\u3000b",
+  "\u200B",
+  "a\u200Bb",
+  "\u200D",
+  "\uFE0F",
+  "\u{E0100}",
+  "\u0301",
+  "a\u202Eb",
+  "a\u202Ab",
+  "a\u2066b",
+  "a\u200Eb",
+  "a\u200Fb",
+  "a\u061Cb",
+  "\u0007",
+  "a\nb",
+  "a\rb",
+  "a\r\nb",
+  "a\tb",
+  "a\u0085b",
+  "a\u2028b",
+  "a\u2029b",
+  "\uD800",
+  "a\uDC00",
+  "\uE000",
+  "\u0378",
+  "🏴\u{E0067}\u{E007F}",
+  "\u3164",
+  "\u115F",
+  "\u1160",
+  "\uFFA0",
+  "a\u3164",
+  null,
+  7,
+  {},
+  [],
+];
+// Clients trim and NFC-normalize entry input. The wire accepts only the canonical form.
 export const playerNameExamples = {
   valid: [
     "가",
@@ -1355,30 +1410,78 @@ export const playerNameExamples = {
     "ABCDEF",
     "123456",
     "김A1",
+    "José",
+    "é",
+    "かな",
+    "名字",
+    "عربي",
+    "Ａ",
+    "ㆍ",
+    "😀",
+    "🇰🇷",
+    family,
+    "👍🏽",
+    "1️⃣",
+    "#️⃣",
+    "*️⃣",
+    "🇰🇷".repeat(6),
+    family.repeat(6),
   ],
   normalize: [" 철수 ", "\t철수　"],
   invalid: [
-    "",
+    ...forbiddenTextExamples,
     "가나다라마바사",
     "ABCDEFG",
     " 철수",
     "철수 ",
     "철 수",
     "Bob!",
-    "名字",
-    "Ａ",
-    "é",
-    "😀",
+    ".",
+    "_",
+    "-",
+    "+",
+    "#",
+    "*",
+    "🇰",
+    "🏽",
+    "\u0301a",
+    "e\u0301",
+    `x${"\u0301".repeat(66)}`,
     "가",
-    "ㆍ",
     "철수\n",
-    null,
-    7,
-    {},
-    [],
   ],
 };
-// Seat 1 stays unnamed and shows seatLabel(1). Seat 4 holds the widest legal name (72 px in Galmuri11 at 12 px).
+export const chatTextExamples = {
+  valid: [
+    "모두 반가워요",
+    "안녕  👋",
+    "<b>hi</b>",
+    "e\u0301",
+    "Bob! + #",
+    "점".repeat(100),
+    family.repeat(100),
+  ],
+  invalid: [
+    ...forbiddenTextExamples,
+    " 안녕",
+    "안녕 ",
+    "a".repeat(101),
+    `x${"\u0301".repeat(1100)}`,
+  ],
+};
+export const chatFrames = {
+  request: { type: "CHAT", text: "<b>hi</b>" } satisfies ChatRequest,
+  delivery: {
+    type: "CHAT",
+    seatId: 0,
+    text: "<b>hi</b>",
+  } satisfies ChatMessage,
+  rateLimited: {
+    type: "CHAT_ERROR",
+    code: "CHAT_RATE_LIMITED",
+  } satisfies ChatError,
+} as const;
+// Seat 1 stays unnamed and shows seatLabel(1). Seat 4 uses six Hangul syllables.
 const seatNames: Slots<string> = ["철수", null, "Bob7", "ㅋㅋ", "가나다라마바"];
 function named<V extends { slots: Slots<PublicSeat> }>(view: V): V {
   const at = (id: SeatId) => {

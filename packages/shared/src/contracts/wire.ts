@@ -50,17 +50,81 @@ export const ERROR_TEXT = {
 export const ABANDONMENT_NOTICE = "참가자 이탈로 게임이 종료되었습니다";
 export const LEAVER_SEAT_PREFIX = "이탈한 좌석";
 export const LAST_GAME_RANKING_TITLE = "직전 게임 순위";
-/** Optional display name: 1–6 Hangul syllables, Hangul compatibility jamo, ASCII letters or digits.
- * The wire never trims; the client trims before sending. Duplicate names in a room are allowed. */
+/** Grapheme limits count user-perceived characters. The independent UTF-16 caps fit
+ * that many 11-unit family emoji and bound the cost of normalization and segmentation. */
 export const PLAYER_NAME_MAX_LENGTH = 6;
-const PLAYER_NAME = /^[가-힣ㄱ-ㅣA-Za-z0-9]{1,6}$/u;
+export const PLAYER_NAME_MAX_CODE_UNITS = 66;
+export const CHAT_TEXT_MAX_LENGTH = 100;
+export const CHAT_TEXT_MAX_CODE_UNITS = 1_100;
+/** Per room occupant, count accepted sends in (now - window, now]. Rejections do not
+ * count. Preserve timestamps on reconnect and discard them when the seat is vacated. */
+export const CHAT_RATE_LIMIT_COUNT = 5;
+export const CHAT_RATE_LIMIT_WINDOW_MS = 5_000;
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+// In Unicode mode paired surrogates form one scalar. The surrogate range matches only lone halves.
+// Bidi controls and emoji tags are Cf. ZWJ is the sole Cf exception.
+const forbidden =
+  /[\uD800-\uDFFF\p{Cc}\p{Co}\p{Cn}\u115F\u1160\u3164\uFFA0]|(?!\u200D)\p{Cf}/u;
+const visible = /[^\p{M}\p{Default_Ignorable_Code_Point}\p{White_Space}]/u;
+function nameCluster(cluster: string): boolean {
+  if (/^[#*0-9]\uFE0F?\u20E3$/u.test(cluster)) return true;
+  if (/^\p{Regional_Indicator}{2}$/u.test(cluster)) return true;
+  return (
+    /^[\p{L}\p{M}\p{N}\p{Extended_Pictographic}\p{Emoji_Modifier}\u200D]+$/u.test(
+      cluster,
+    ) &&
+    /[\p{L}\p{N}\p{Extended_Pictographic}]/u.test(cluster) &&
+    visible.test(cluster)
+  );
+}
+
+/** Optional, duplicate names allowed. Client trims and normalizes to NFC before sending.
+ * Each cluster needs a visible letter, number or emoji base. Reject standalone marks,
+ * Hangul fillers, whitespace, ordinary punctuation and non-emoji symbols. */
 export function isPlayerName(value: unknown): value is string {
-  return typeof value === "string" && PLAYER_NAME.test(value);
+  if (
+    typeof value !== "string" ||
+    !value.length ||
+    value.length > PLAYER_NAME_MAX_CODE_UNITS ||
+    forbidden.test(value) ||
+    value !== value.normalize("NFC")
+  )
+    return false;
+  let count = 0;
+  for (const { segment } of graphemes.segment(value)) {
+    if (++count > PLAYER_NAME_MAX_LENGTH || !nameCluster(segment)) return false;
+  }
+  return true;
+}
+
+/** Free text, including punctuation and markup-looking literals. The wire preserves
+ * normalization. The client trims first; only inner U+0020 spaces are accepted. */
+export function isChatText(value: unknown): value is string {
+  if (
+    typeof value !== "string" ||
+    !value.length ||
+    value.length > CHAT_TEXT_MAX_CODE_UNITS ||
+    value !== value.trim() ||
+    forbidden.test(value) ||
+    /(?! )[\p{White_Space}\p{Z}]/u.test(value) ||
+    !visible.test(value)
+  )
+    return false;
+  return Array.from(graphemes.segment(value)).length <= CHAT_TEXT_MAX_LENGTH;
 }
 export type ErrorCode = keyof typeof ERROR_TEXT;
+export const CHAT_ERROR_TEXT = {
+  CHAT_RATE_LIMITED: "채팅을 너무 빨리 보냈어요. 잠시 후 다시 보내 주세요.",
+} as const;
+export type ChatErrorCode = keyof typeof CHAT_ERROR_TEXT;
 export const UNKNOWN_ERROR_TEXT = "요청을 처리하지 못했어요.";
 export function errorText(code: string): string {
-  return isErrorCode(code) ? ERROR_TEXT[code] : UNKNOWN_ERROR_TEXT;
+  if (isErrorCode(code)) return ERROR_TEXT[code];
+  return isChatErrorCode(code) ? CHAT_ERROR_TEXT[code] : UNKNOWN_ERROR_TEXT;
+}
+function isChatErrorCode(value: unknown): value is ChatErrorCode {
+  return typeof value === "string" && Object.hasOwn(CHAT_ERROR_TEXT, value);
 }
 function isErrorCode(value: unknown): value is ErrorCode {
   return typeof value === "string" && Object.hasOwn(ERROR_TEXT, value);
@@ -77,8 +141,10 @@ export type Command =
 /** Explicit leave (docs/lexio-rules.md §5). A seated connection gets no reply; the server unbinds it and
  * revokes its credential, so the same connection may CREATE_ROOM or JOIN_ROOM next. Unbound: NOT_SEATED. */
 export type LeaveRoom = { type: "LEAVE_ROOM" };
-/** Everything a client may send. Command stays the pre-leave set so callers that narrow it keep compiling. */
+/** Sender identity is determined exclusively from the server-side connection binding. */
+export type ChatRequest = { type: "CHAT"; text: string };
 export type Request = Command | LeaveRoom;
+export type ClientRequest = Request | ChatRequest;
 export type PublicSeat = Readonly<{
   remainingTileCount: number;
   chips: number;
@@ -176,6 +242,9 @@ export type Snapshot = {
   view: PlayerView;
 };
 export type Message = Seated | Snapshot | { type: "ERROR"; code: ErrorCode };
+export type ChatMessage = { type: "CHAT"; seatId: SeatId; text: string };
+export type ChatError = { type: "CHAT_ERROR"; code: ChatErrorCode };
+export type ServerMessage = Message | ChatMessage | ChatError;
 
 function safeInteger(v: unknown): v is number {
   return Number.isSafeInteger(v);
@@ -273,12 +342,49 @@ export function decodeRequest(frame: unknown): Request | "INVALID_MESSAGE" {
   const v = read(frame);
   return request(v) ? v : "INVALID_MESSAGE";
 }
-/** decodeRequest without LEAVE_ROOM, which it reports as INVALID_MESSAGE. The server decodes with decodeRequest. */
+/** Room services accept legacy requests plus a CHAT carrying only validated text. */
+export function decodeClientRequest(
+  frame: unknown,
+): ClientRequest | "INVALID_MESSAGE" {
+  const v = read(frame);
+  if (
+    record(v) &&
+    v.type === "CHAT" &&
+    onlyKeys(v, ["type", "text"]) &&
+    isChatText(v.text)
+  )
+    return { type: "CHAT", text: v.text };
+  return request(v) ? v : "INVALID_MESSAGE";
+}
+/** Legacy commands exclude LEAVE_ROOM and CHAT. */
 export function decodeCommand(frame: unknown): Command | "INVALID_MESSAGE" {
   const r = decodeRequest(frame);
   return r !== "INVALID_MESSAGE" && r.type === "LEAVE_ROOM"
     ? "INVALID_MESSAGE"
     : r;
+}
+
+/** Decode a separate chat delivery or sender-only rate error from text JSON.
+ * On null the client falls back to decodeServerMessage for legacy frames. */
+export function decodeChatMessage(
+  frame: unknown,
+): ChatMessage | ChatError | null {
+  const v = read(frame);
+  if (!record(v)) return null;
+  if (
+    v.type === "CHAT" &&
+    onlyKeys(v, ["type", "seatId", "text"]) &&
+    seat(v.seatId) &&
+    isChatText(v.text)
+  )
+    return { type: "CHAT", seatId: v.seatId, text: v.text };
+  if (
+    v.type === "CHAT_ERROR" &&
+    onlyKeys(v, ["type", "code"]) &&
+    isChatErrorCode(v.code)
+  )
+    return { type: "CHAT_ERROR", code: v.code };
+  return null;
 }
 
 function publicSeat(v: unknown): v is PublicSeat {

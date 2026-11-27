@@ -42,7 +42,7 @@ function patched(frame: Snapshot, view: Record<string, unknown>) {
   return json({ ...frame, view: { ...frame.view, ...view } });
 }
 
-test("names are 1–6 Hangul, jamo, ASCII letters or digits and the wire never trims", () => {
+test("names are 1–6 NFC letter, number or emoji clusters and the wire never trims", () => {
   expect(PLAYER_NAME_MAX_LENGTH).toBe(6);
   for (const name of playerNameExamples.valid)
     expect(isPlayerName(name)).toBe(true);
@@ -98,6 +98,15 @@ test("public seats and abandonment rows carry only valid names", () => {
       "가나다라마바",
     ]);
     expect(Object.hasOwn(frame.view.slots[1] ?? {}, "name")).toBe(false);
+    for (const name of playerNameExamples.valid) {
+      const slots = frame.view.slots.map((s, i) => (i ? s : { ...s, name }));
+      const decoded = decodeServerMessage(patched(frame, { slots }), recipient);
+      expect(
+        decoded !== invalid &&
+          decoded.type === "SNAPSHOT" &&
+          decoded.view.slots[0]?.name,
+      ).toBe(name);
+    }
     for (const name of playerNameExamples.invalid) {
       const slots = frame.view.slots.map((s, i) => (i ? s : { ...s, name }));
       expect(decodeServerMessage(patched(frame, { slots }), recipient)).toBe(
