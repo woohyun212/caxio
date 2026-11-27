@@ -6,10 +6,16 @@ import { seatLabel } from "../visual/layout";
 export function ChatLine({ entry, own }: { entry: ChatEntry; own: boolean }) {
   return (
     <>
-      <span className="gc-chat-name" dir="auto">
-        {entry.name ?? seatLabel(entry.seatId)}
+      <span className="gc-chat-name" style={{ display: "inline-flex" }}>
+        <span
+          dir="auto"
+          style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+        >
+          {entry.name ?? seatLabel(entry.seatId)}
+        </span>
+        {!own && ":"}
       </span>
-      {own && <span>(나)</span>}
+      {own && <span> (나):</span>}{" "}
       <span className="gc-chat-body" dir="auto">
         {entry.text}
       </span>
