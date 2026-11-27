@@ -159,7 +159,7 @@ export function Seats({
               className={active ? "gc-plate gc-current" : "gc-plate"}
               style={wide ? box(nameplate) : undefined}
             >
-              {name}
+              {wide ? name : <span className="gc-seat-name">{name}</span>}
               {!wide && (
                 <>
                   {" "}

@@ -9,6 +9,7 @@ import {
   abandonmentLobbyExamples,
   abandonmentRestart,
   abandonmentResults,
+  chatFrames,
   configuredRoom,
   deadlines,
   dealExamples,
@@ -31,6 +32,8 @@ import {
 import {
   ABANDONMENT_NOTICE,
   ERROR_TEXT,
+  errorText,
+  isPlayerName,
   LAST_GAME_RANKING_TITLE,
   LEAVER_SEAT_PREFIX,
   type PlayerView,
@@ -43,6 +46,7 @@ import type { ClientModel, GameControlsProps } from "../contracts";
 import { atlases, fontFiles, tileRect } from "../visual/assets";
 import { handOrder, layout } from "../visual/layout";
 import { frame, palette } from "../visual/tokens";
+import { Chat } from "./chat";
 import { GameControls } from "./index";
 import { Action, EndScreen, Entry, Lobby, Panel } from "./screens";
 import {
@@ -126,6 +130,9 @@ function props(
 }
 const render = (p: GameControlsProps) =>
   renderToStaticMarkup(<GameControls {...p} />);
+// Older assertions check the visible sentence across the inline name element.
+const seatText = (html: string) =>
+  html.replaceAll(/<span class="gc-seat-name">([^<]*)<\/span>/g, "$1");
 const tags = (html: string, pattern: RegExp) =>
   Array.from(html.matchAll(pattern), (m) => m[0]);
 function actionTag(html: string, kind: "submit" | "pass") {
@@ -428,7 +435,7 @@ test("locked native actions stay focusable, describe their reason and dispatch n
 });
 test("settlement opens through the next deal and first lead remains playable", () => {
   const [, , , paid, next] = lastPlaySequence.continuing;
-  const html = render(props(paid.view));
+  const html = seatText(render(props(paid.view)));
   expect(html).toContain('aria-label="직전 정산"');
   for (const text of [
     "<u>1위</u> 1번(나) 0장 +3칩 67칩",
@@ -582,7 +589,7 @@ test("end reason prioritizes the last round, preserves tied ranks and opens the 
       reason === "LAST_ROUND" ? "마지막 라운드 종료" : "생존자 3명 미만",
     );
   const v = tiedRankingExample.view,
-    html = render(props(v));
+    html = seatText(render(props(v)));
   expect(html).toMatch(/1위 1번 65칩.*1위 2번 65칩.*3위 3번 62칩/);
   expect(html).toContain(">새 방 만들기<");
   const createRoom = mock(noop),
@@ -1061,6 +1068,7 @@ test("Tab order runs from status through the sorted hand and actions to settleme
     },
   );
   expect(order).toEqual([
+    "방 채팅",
     "소리",
     "메뉴",
     ...handOrder(view.ownHand, view.maxNumber).map(tileName),
@@ -1366,7 +1374,7 @@ test("a returned seat announces only an unseen automatic action from this docume
 
 test("compact settlement displays every rank together and keeps the menu overlay", () => {
   const view = lastPlaySequence.continuing[3].view;
-  const html = render(props(view, {}, 1));
+  const html = seatText(render(props(view, {}, 1)));
   for (const row of [
     "<u>1위</u> 1번(나) 0장 +3칩 67칩",
     "2위 2번 1장 0칩 64칩",
@@ -1430,7 +1438,7 @@ test("past ranking rows retain server order and chips, separate from current occ
           { seatId: lobby.recipient },
         ),
       );
-      const region = html.match(
+      const region = seatText(html).match(
         /<section class="gc-last-result" aria-labelledby="gc-last-ranking">(.*?)<\/section>/,
       )?.[1];
       if (!region) throw Error("missing labelled result region");
@@ -1451,7 +1459,7 @@ test("past ranking rows retain server order and chips, separate from current occ
       );
       expect(html).toContain('aria-label="현재 좌석"');
       if (lobby === reused) {
-        expect(html).toMatch(/<li>1번 접속\s+나<\/li>/);
+        expect(seatText(html)).toMatch(/<li>1번 접속\s+나<\/li>/);
         expect(html).toContain("방장의 시작을 기다려 주세요");
         expect(html).not.toContain(">시작<");
       } else {
@@ -1535,7 +1543,7 @@ test("names replace seat numbers in the lobby, nameplates, turn, caption and pas
   const lobby = render(
     props(namedViews.lobby.frame.view, { seatId: namedViews.lobby.recipient }),
   );
-  expect(lobby).toMatch(
+  expect(seatText(lobby)).toMatch(
     /<li>철수 접속 방장 나<\/li><li>2번 접속 {2}<\/li><li>Bob7 접속 {2}<\/li><li>ㅋㅋ 접속 {2}<\/li><li>가나다라마바 접속 {2}<\/li>/,
   );
   expect(lobby).toContain("방장 · 철수");
@@ -1560,7 +1568,7 @@ test("names replace seat numbers in the lobby, nameplates, turn, caption and pas
   expect(wide).toContain("ㅋㅋ · 싱글 · 별 9");
   // The command row keeps the seat number to fit its 97px cell.
   expect(wide).toMatch(/class="gc-self">.*2번 64칩/);
-  const compact = render(props(game, { seatId }, 0, caption));
+  const compact = seatText(render(props(game, { seatId }, 0, caption)));
   expect(compact).toContain(
     '>가나다라마바 <span class="gc-count">12장</span> <span>64칩</span> 차례<',
   );
@@ -1571,7 +1579,7 @@ test("names replace seat numbers in the lobby, nameplates, turn, caption and pas
     props(leaveExamples.game.after[0].frame.view, { seatId: 0 }),
   );
   expect(past).toContain(`${LEAVER_SEAT_PREFIX} Bob7`);
-  expect(past).toMatch(
+  expect(seatText(past)).toMatch(
     /<li>1위 철수 64칩<\/li><li>1위 2번 64칩<\/li><li>3위 Bob7 64칩<\/li>/,
   );
 });
@@ -1592,10 +1600,16 @@ test("entry names are trimmed, validated like the server and remembered best eff
     expect(entryName(name)).toBe(name);
   for (const name of playerNameExamples.normalize)
     expect(entryName(name)).toBe(name.trim());
+  expect(entryName("  e\u0301　")).toBe("é");
+  expect(entryName("가")).toBe("가");
   expect(entryName("  ")).toBeUndefined();
   // The wire rejects untrimmed names; the entry trims them first.
   for (const name of playerNameExamples.invalid)
-    if (typeof name === "string" && name.trim() && name === name.trim())
+    if (
+      typeof name === "string" &&
+      name.trim() &&
+      !isPlayerName(name.trim().normalize("NFC"))
+    )
       expect(entryName(name)).toBe(false);
   const saved = new Map<string, string>();
   const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -1785,11 +1799,14 @@ test("invite copy writes the root URL and exposes the same full URL for manual c
 function FilledEntry({
   p,
   onJoin,
+  inputName = " 별 ",
 }: {
+  inputName?: string;
   p: Parameters<typeof Entry>[0];
   onJoin: (submit: () => void) => void;
 }) {
   const [filled, setFilled] = useState(false);
+  const created = React.useRef(false);
   const entry = Entry(p);
   function visit(node: ReactNode) {
     if (
@@ -1810,14 +1827,17 @@ function FilledEntry({
       if (node.props.id === "gc-code")
         node.props.onChange?.({ target: { value: " abcd23 " } });
       if (node.props.id === "gc-name")
-        node.props.onChange?.({ target: { value: " 별 " } });
+        node.props.onChange?.({ target: { value: inputName } });
     } else if (node.type === "form")
       onJoin(() => node.props.onSubmit?.({ preventDefault: noop }));
     Children.forEach(node.props.children, visit);
   }
   visit(entry);
   if (!filled) setFilled(true);
-  else click(Action(findAction(entry, "방 만들기")));
+  else if (!created.current) {
+    created.current = true;
+    click(Action(findAction(entry, "방 만들기")));
+  }
   return entry;
 }
 test("entry selection sends configured values only with creation", () => {
@@ -1933,4 +1953,156 @@ test("lobby copy denial renders the full selectable invite link and reason", asy
     if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
     else Reflect.deleteProperty(navigator, "clipboard");
   }
+});
+
+test("seated screens show literal chat, own/fallback labels and the sender-only error beside the input", () => {
+  const patch: Partial<ClientModel> = {
+    chat: [
+      { seatId: 0, text: chatFrames.delivery.text, name: "名字" },
+      { seatId: 1, text: "かな" },
+    ],
+    chatErrorCode: chatFrames.rateLimited.code,
+  };
+  for (const view of [
+    namedViews.lobby.frame.view,
+    follow,
+    spectatorExamples.restored.view,
+    gameOverExamples[0].snapshot.view,
+    leaveExamples.game.after[0].frame.view,
+  ]) {
+    const html = render(props(view, patch, 1));
+    expect(html).toContain(
+      'data-own="true"><span class="gc-chat-name" dir="auto">名字</span><span>(나)</span>',
+    );
+    expect(html).toContain(">&lt;b&gt;hi&lt;/b&gt;</span>");
+    expect(html).toContain(
+      'data-own="false"><span class="gc-chat-name" dir="auto">2번</span>',
+    );
+    expect(html).toContain('aria-describedby="gc-chat-error"');
+    expect(html).toContain(
+      `</form><div role="status" id="gc-chat-error">${errorText("CHAT_RATE_LIMITED")}</div>`,
+    );
+  }
+});
+
+function ChatKeyProbe({ stopped }: { stopped: () => void }) {
+  const chat = Chat(props(follow));
+  function visit(node: ReactNode) {
+    if (
+      !isValidElement<{
+        children?: ReactNode;
+        onKeyDown?: (event: {
+          key: string;
+          stopPropagation: () => void;
+        }) => void;
+        onKeyUp?: (event: { key: string; stopPropagation: () => void }) => void;
+      }>(node)
+    )
+      return;
+    if (node.type === "input")
+      for (const key of ["Enter", " ", "1", "ArrowLeft", "Escape"]) {
+        node.props.onKeyDown?.({ key, stopPropagation: stopped });
+        node.props.onKeyUp?.({ key, stopPropagation: stopped });
+      }
+    Children.forEach(node.props.children, visit);
+  }
+  visit(chat);
+  return chat;
+}
+test("chat input isolates game key events without cancelling native editing or form submission", () => {
+  const stopped = mock(noop);
+  renderToStaticMarkup(<ChatKeyProbe stopped={stopped} />);
+  expect(stopped).toHaveBeenCalledTimes(10);
+});
+
+test("name slots preserve the full Unicode string for assistive technology in either renderer", async () => {
+  const name = "👨‍👩‍👧‍👦".repeat(6),
+    { frame, recipient } = namedViews.game;
+  const [a, b, c, d, turn] = frame.view.slots;
+  if (!turn) throw Error("Missing current seat");
+  const view: PlayerView = {
+    ...frame.view,
+    slots: [a, b, c, d, { ...turn, name }],
+  };
+  for (const k of [1, 2, 3]) {
+    const html = render(props(view, { seatId: recipient }, k));
+    expect(html).toContain(`aria-label="${name} 12장 64칩 · 접속 · 차례"`);
+    expect(html).toContain(`>${name}</span>`);
+  }
+  const styles = await Bun.file(new URL("./chat.css", import.meta.url)).text();
+  expect(styles).toMatch(
+    /\.gc-seat-name,[^{}]*\.gc-wide \.gc-plate,[^{}]*\.gc-turn,[^{}]*\{[^}]*text-overflow: ellipsis/,
+  );
+});
+
+function WideChatProbe({
+  before,
+  after,
+  screens,
+}: {
+  before: GameControlsProps;
+  after: GameControlsProps;
+  screens: ReactNode[];
+}) {
+  const [step, setStep] = useState(0);
+  const tree = GameControls(step === 0 ? before : after);
+  const board = Children.toArray(
+    (tree.props as { children: ReactNode }).children,
+  ).find(
+    (child) =>
+      isValidElement<{ toggleChat?: () => void }>(child) &&
+      child.props.toggleChat,
+  );
+  if (!isValidElement<{ toggleChat: () => void }>(board))
+    throw Error("Missing board");
+  screens[step] = board;
+  if (step === 1 || step === 2) board.props.toggleChat();
+  if (step < 3) setStep(step + 1);
+  return tree;
+}
+test("wide chat signals fresh deliveries, opens in one action and stays read after closing", () => {
+  for (const priority of ["other", "mine", "error", "outage"]) {
+    const before = props(follow, {
+      seatId: priority === "mine" ? 0 : 1,
+      errorCode: priority === "error" ? "INVALID_MESSAGE" : null,
+      connection: priority === "outage" ? "DISCONNECTED" : "CONNECTED",
+    });
+    const after: GameControlsProps = {
+      ...before,
+      model: {
+        ...before.model,
+        chat: [{ seatId: 0, text: "받았어요", name: "名字" }],
+      },
+    };
+    const boards: ReactNode[] = [];
+    renderToStaticMarkup(
+      <WideChatProbe before={before} after={after} screens={boards} />,
+    );
+    const screens = boards.map((board) => renderToStaticMarkup(board));
+    expect(screens[0]).not.toContain("읽지 않음");
+    expect(screens[1]).toContain("방 채팅 · 읽지 않음");
+    expect(screens[1]?.includes("gc-chat-toast")).toBe(priority === "other");
+    expect(screens[2]).toContain(
+      'aria-expanded="true" aria-controls="gc-chat"',
+    );
+    expect(screens[2]).toContain('dir="auto">받았어요</span>');
+    expect(screens[3]).not.toMatch(/읽지 않음|gc-chat-toast|id="gc-chat"/);
+  }
+});
+
+test("a forbidden character shows the name hint without making a room request", () => {
+  const createRoom = mock(noop),
+    joinRoom = mock(noop);
+  const html = renderToStaticMarkup(
+    <FilledEntry
+      p={{ ...props(null), createRoom, joinRoom, message: "" }}
+      onJoin={noop}
+      inputName="금지!"
+    />,
+  );
+  expect(html).toContain(
+    "이름에는 공백 없이 글자·숫자·이모지를 6자까지 쓸 수 있어요.",
+  );
+  expect(html).toMatch(/id="gc-name"[^>]*aria-invalid="true"/);
+  expect(createRoom).not.toHaveBeenCalled();
 });

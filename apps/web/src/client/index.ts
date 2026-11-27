@@ -1,8 +1,11 @@
 import type { Tile } from "@caxio/shared/contracts/domain";
 import {
+  type ChatRequest,
   type Command,
   type Credential,
+  decodeChatMessage,
   decodeServerMessage,
+  isChatText,
   isRoomCode,
 } from "@caxio/shared/contracts/wire";
 import { createStore } from "zustand/vanilla";
@@ -12,6 +15,9 @@ import type {
   ClientModel,
   CreateClientSession,
 } from "../contracts";
+import { CHAT_HISTORY_LIMIT } from "../contracts";
+
+import { entryName } from "./name";
 
 const credentialKey = "caxio.credential";
 const muteKey = "caxio.muted";
@@ -51,6 +57,8 @@ function sameTile(a: Tile, b: Tile) {
 }
 
 const empty = {
+  chat: [],
+  chatErrorCode: null,
   connection: "DISCONNECTED",
   seatId: null,
   view: null,
@@ -72,6 +80,7 @@ export const createClientSession: CreateClientSession = (deps) => {
   type Socket = ReturnType<ClientDependencies["openSocket"]>;
   interface Connection {
     socket?: Socket;
+    opened: boolean;
     lost(): void;
   }
   let current: Connection | null = null;
@@ -100,19 +109,24 @@ export const createClientSession: CreateClientSession = (deps) => {
     }
   }
 
+  function retainedChat() {
+    const { chat, chatErrorCode } = getState();
+    return { chat, chatErrorCode };
+  }
+
   function connect(
     request: Extract<Command, { type: "CREATE_ROOM" | "JOIN_ROOM" | "RESUME" }>,
     retry = false,
   ) {
     detach();
     const restoring = request.type === "RESUME";
-    let opened = false;
     let sent = false;
     let establishing = true;
     let lastPlayId = 0;
     let lastSettlementRound = 0;
     let lastOwnTurnId = 0;
     const connection: Connection = {
+      opened: false,
       lost() {
         if (current !== connection) return;
         const { credential, revision, selected } = getState();
@@ -121,20 +135,30 @@ export const createClientSession: CreateClientSession = (deps) => {
         if (credential && (!retry || (revision !== null && !establishing))) {
           connect({ type: "RESUME", ...credential }, true);
         } else {
-          setState({ ...empty, selected: credential ? selected : [] });
+          setState({
+            ...empty,
+            ...(credential && retainedChat()),
+            selected: credential ? selected : [],
+          });
         }
       },
     };
     current = connection;
     setState({
       ...empty,
+      ...(restoring && retainedChat()),
       selected: restoring ? getState().selected : [],
       connection: restoring ? "RESTORING" : "CONNECTING",
     });
     if (current !== connection) return;
 
     function handshake() {
-      if (current !== connection || !opened || !connection.socket || sent)
+      if (
+        current !== connection ||
+        !connection.opened ||
+        !connection.socket ||
+        sent
+      )
         return;
       sent = true;
       establishing = true;
@@ -148,13 +172,29 @@ export const createClientSession: CreateClientSession = (deps) => {
     try {
       const socket = deps.openSocket({
         open() {
-          opened = true;
+          connection.opened = true;
           handshake();
         },
         close: connection.lost,
         message(frame) {
           if (current !== connection) return;
           const state = getState();
+          const chat = decodeChatMessage(frame);
+          if (chat) {
+            if (state.seatId === null) return;
+            if (chat.type === "CHAT_ERROR")
+              setState({ chatErrorCode: chat.code });
+            else {
+              const { seatId, text } = chat;
+              const name = state.view?.slots[seatId]?.name;
+              const entry =
+                name === undefined ? { seatId, text } : { seatId, text, name };
+              setState({
+                chat: [...(state.chat ?? []), entry].slice(-CHAT_HISTORY_LIMIT),
+              });
+            }
+            return;
+          }
           const message = decodeServerMessage(frame, state.seatId);
           if (message === "INVALID_MESSAGE") {
             setState({ errorCode: message });
@@ -169,6 +209,11 @@ export const createClientSession: CreateClientSession = (deps) => {
               deps.storage.setItem(credentialKey, JSON.stringify(credential)),
             );
             setState({
+              ...(state.credential &&
+                state.credential.roomCode !== credential.roomCode && {
+                  chat: [],
+                  chatErrorCode: null,
+                }),
               credential,
               seatId: message.seatId,
               pending: state.pending === request ? null : state.pending,
@@ -185,7 +230,11 @@ export const createClientSession: CreateClientSession = (deps) => {
               setState({ ...empty, credential: null, errorCode: message.code });
             } else if (state.seatId === null) {
               detach();
-              setState({ ...empty, errorCode: message.code });
+              setState({
+                ...empty,
+                ...(restoring && retainedChat()),
+                errorCode: message.code,
+              });
             } else {
               setState({ pending: null, errorCode: message.code });
             }
@@ -280,21 +329,43 @@ export const createClientSession: CreateClientSession = (deps) => {
       store.subscribe((state, previous) => {
         bestEffort(() => listener(state, previous));
       }),
-    createRoom(name, settings) {
-      if (beginAction())
+    createRoom(input, settings) {
+      const name = entryName(input);
+      if (beginAction() && name !== false)
         connect(
           name === undefined
             ? { type: "CREATE_ROOM", ...settings }
             : { type: "CREATE_ROOM", name, ...settings },
         );
     },
-    joinRoom(roomCode, name) {
-      if (beginAction() && isRoomCode(roomCode))
+    joinRoom(roomCode, input) {
+      const name = entryName(input);
+      if (beginAction() && isRoomCode(roomCode) && name !== false)
         connect(
           name === undefined
             ? { type: "JOIN_ROOM", roomCode }
             : { type: "JOIN_ROOM", roomCode, name },
         );
+    },
+    sendChat(input) {
+      const connection = current;
+      const text = input.trim();
+      if (
+        !connection?.opened ||
+        !connection.socket ||
+        getState().seatId === null ||
+        !isChatText(text)
+      )
+        return;
+      if (getState().chatErrorCode) setState({ chatErrorCode: null });
+      if (current !== connection) return;
+      try {
+        connection.socket.send(
+          JSON.stringify({ type: "CHAT", text } satisfies ChatRequest),
+        );
+      } catch {
+        connection.lost();
+      }
     },
     leaveRoom() {
       if (disposed) return;
