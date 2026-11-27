@@ -6,12 +6,13 @@ import type {
 } from "../../packages/shared/src/contracts/domain";
 import { configuredRoom } from "../../packages/shared/src/contracts/fixtures";
 import {
+  type ClientRequest,
   type Command,
   type ErrorCode,
-  type Message,
   type PlayerView,
   type Request,
   type Seated,
+  type ServerMessage,
   type Snapshot,
   WS_PATH,
 } from "../../packages/shared/src/contracts/wire";
@@ -38,7 +39,7 @@ export class Client {
   credential?: Seated;
   previous?: Snapshot;
   view?: PlayerView;
-  queue: Message[] = [];
+  queue: ServerMessage[] = [];
   ignored = false;
   replacing = false;
   left = false;
@@ -85,10 +86,10 @@ export class Client {
     }
     this.room.check();
   }
-  async next<T extends Message["type"]>(
+  async next<T extends ServerMessage["type"]>(
     type: T,
     extraMs = 0,
-  ): Promise<Extract<Message, { type: T }>> {
+  ): Promise<Extract<ServerMessage, { type: T }>> {
     await this.wait(() => this.queue.length > 0, type, extraMs);
     const m = this.queue.shift();
     requireCheck(
@@ -98,9 +99,9 @@ export class Client {
     if (m.type === "SNAPSHOT")
       this.view =
         this.queue.length === 0 && this.previous ? this.previous.view : m.view;
-    return m as Extract<Message, { type: T }>;
+    return m as Extract<ServerMessage, { type: T }>;
   }
-  send(command: Request | string) {
+  send(command: ClientRequest | string) {
     this.ws.send(
       typeof command === "string" ? command : JSON.stringify(command),
     );

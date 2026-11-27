@@ -1,5 +1,6 @@
 import { atlases, fontFiles } from "../../apps/web/src/visual/assets";
 import { HEALTH_PATH } from "../../packages/shared/src/contracts/wire";
+import { probeChat } from "./chat";
 import { Game } from "./game";
 import {
   type Asset,
@@ -120,6 +121,7 @@ export async function runProbe(
   } catch (error) {
     fail(game.currentCheck, error);
   }
+  await probeChat(origin, options.frameMs ?? 5000, end, check);
   log(`summary ${bad ? "FAIL" : "PASS"} ${good} passed, ${bad} failed`);
   return bad ? 1 : 0;
 }

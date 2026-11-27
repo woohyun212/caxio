@@ -41,6 +41,7 @@ test("three real sockets, seven rejections, lost and final resumes", async () =>
   expect(output).toContain("summary PASS");
   expect(code).toBe(0);
   for (const id of [
+    ...new Set(chatFaults.map(([, id]) => id)),
     "http.ready",
     "http.html",
     "http.missing",
@@ -243,3 +244,33 @@ test("socket failures report exception names without messages", () => {
   game.fail(new RangeError("protected-credential-alpha"));
   expect(game.failure?.message).toBe("socket failure (RangeError)");
 });
+
+const chatFaults = [
+  ["missing-emoji-echo", "chat.roundtrip", "frame budget exceeded (CHAT)"],
+  ["game-chat-snapshot", "chat.game", "expected ERROR, received SNAPSHOT"],
+  ["accept-forged-seat", "chat.forged", "expected ERROR, received CHAT"],
+  ["accept-forged-name", "chat.forged", "expected ERROR, received CHAT"],
+  ["wrong-chat-sender", "chat.forged", "chat sender or text mismatch"],
+  ["cross-room-chat", "chat.room", "expected ERROR, received CHAT"],
+  ["accept-unbound-chat", "chat.unseated", "expected ERROR, received CHAT"],
+  ["accept-left-chat", "chat.unseated", "expected ERROR, received CHAT"],
+  ["trim-invalid-chat", "chat.invalid", "expected ERROR, received CHAT"],
+  ["unlimited-chat", "chat.rate", "expected CHAT_ERROR, received CHAT"],
+  ["broadcast-rate-error", "chat.rate", "expected ERROR, received CHAT_ERROR"],
+  ["count-invalid-chat", "chat.rate", "expected CHAT, received CHAT_ERROR"],
+  ["old-name-rule", "name.unicode", "expected SEATED, received ERROR"],
+  ["allow-bidi-name", "name.reject", "expected ERROR, received SEATED"],
+] as const;
+for (const [fault, id, reason] of chatFaults) {
+  test(`detect ${fault} in ${id} only`, async () => {
+    const { code, output } = await run(fault);
+    expect(code).toBe(1);
+    expect(
+      output
+        .split("\n")
+        .filter(
+          (line) => line.includes(" FAIL ") && !line.startsWith("summary"),
+        ),
+    ).toEqual([`${id} FAIL ${reason}`]);
+  });
+}
