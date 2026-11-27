@@ -503,6 +503,36 @@ export const GameControls: GameControlsComponent<ReactElement> = (props) => {
   const [read, setRead] = useState(latest);
   const [expired, setExpired] = useState<ChatEntry>();
   const inline = !wide || view?.phase === "LOBBY";
+  const canOpenChat = !!view && !inline && !chatOpen;
+  useEffect(() => {
+    if (!canOpenChat) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (
+        e.key !== "Enter" ||
+        e.defaultPrevented ||
+        e.repeat ||
+        e.isComposing ||
+        e.altKey ||
+        e.ctrlKey ||
+        e.metaKey ||
+        e.shiftKey ||
+        (e.target instanceof Element &&
+          e.target.closest(
+            `input, textarea, select, button, a, summary, [contenteditable],
+             [role~=button], [role~=link], [role~=menu], [role~=menubar], [role~=menuitem],
+             [role~=menuitemradio], [role~=menuitemcheckbox], [role~=tab], [role~=tablist],
+             [role~=tree], [role~=treeitem], [role~=grid], [role~=treegrid], [role~=gridcell],
+             [role~=listbox], [role~=option], [role~=combobox], [role~=textbox], [role~=searchbox],
+             [role~=checkbox], [role~=radio], [role~=radiogroup], [role~=switch]`,
+          ))
+      )
+        return;
+      e.preventDefault();
+      setChatOpen(true);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [canOpenChat]);
   const unread = !!latest && latest !== read && !chatOpen && !inline;
   if ((!latest || inline || chatOpen) && read !== latest) setRead(latest);
   if (chatOpen && (!view || inline)) setChatOpen(false);

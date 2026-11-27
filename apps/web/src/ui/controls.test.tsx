@@ -2106,3 +2106,123 @@ test("a forbidden character shows the name hint without making a room request", 
   expect(html).toMatch(/id="gc-name"[^>]*aria-invalid="true"/);
   expect(createRoom).not.toHaveBeenCalled();
 });
+
+test("only plain Enter outside a control opens closed wide game chat", () => {
+  let target = "body",
+    flags: Partial<KeyboardEvent> = {};
+  const preventDefault = mock(noop);
+  class KeyTarget {
+    closest(selector: string) {
+      return selector.split(/,\s*/).includes(target) ? this : null;
+    }
+  }
+  const doc = {
+    addEventListener(type: string, handle: (event: object) => void) {
+      if (type === "keydown")
+        handle({
+          key: "Enter",
+          target: new KeyTarget(),
+          preventDefault,
+          ...flags,
+        });
+    },
+    removeEventListener: noop,
+  };
+  const globals = ["document", "Element"] as const;
+  const originals = globals.map((key) =>
+    Object.getOwnPropertyDescriptor(globalThis, key),
+  );
+  const effects = spyOn(React, "useEffect").mockImplementation((effect) => {
+    effect()?.();
+  });
+  try {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: doc,
+    });
+    Object.defineProperty(globalThis, "Element", {
+      configurable: true,
+      value: KeyTarget,
+    });
+    const p = props(follow, { timeAnchor: null });
+    for (target of ["body", "fieldset"]) {
+      const html = render(p);
+      expect(html).toContain('aria-expanded="true" aria-controls="gc-chat"');
+      expect(html).toContain('aria-label="채팅 메시지"');
+    }
+    expect(preventDefault).toHaveBeenCalledTimes(2);
+    preventDefault.mockClear();
+    // Tiles, submit/pass and panel actions are all native buttons.
+    for (target of [
+      "button",
+      "input",
+      "textarea",
+      "select",
+      "a",
+      "[contenteditable]",
+      "[role~=menuitem]",
+    ])
+      expect(render(p)).not.toContain('id="gc-chat"');
+    target = "body";
+    for (flags of [
+      { isComposing: true },
+      { altKey: true },
+      { ctrlKey: true },
+      { metaKey: true },
+      { shiftKey: true },
+      { repeat: true },
+      { key: "Escape" },
+    ])
+      expect(render(p)).not.toContain('id="gc-chat"');
+    flags = {};
+    for (const inline of [
+      props(follow, { timeAnchor: null }, 1),
+      props(namedViews.lobby.frame.view),
+      props(null),
+    ])
+      expect(render(inline)).not.toContain("gc-chat-toggle");
+    expect(preventDefault).not.toHaveBeenCalled();
+  } finally {
+    effects.mockRestore();
+    globals.forEach((key, i) => {
+      const descriptor = originals[i];
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    });
+  }
+});
+
+test("mounting opened wide chat focuses its message input", () => {
+  const focus = mock(noop);
+  const effects: Array<() => void> = [];
+  const layoutEffect = spyOn(React, "useLayoutEffect").mockImplementation(
+    (effect) => {
+      effects.push(effect);
+    },
+  );
+  function attachInput(node: ReactNode) {
+    if (
+      !isValidElement<{
+        children?: ReactNode;
+        ref?: { current: { focus: () => void } | null };
+      }>(node)
+    )
+      return;
+    if (node.type === "input" && node.props.ref)
+      node.props.ref.current = { focus };
+    Children.forEach(node.props.children, attachInput);
+  }
+  try {
+    renderToStaticMarkup(<ChatMount onRender={attachInput} />);
+    for (const effect of effects) effect();
+    expect(focus).toHaveBeenCalledTimes(1);
+  } finally {
+    layoutEffect.mockRestore();
+  }
+});
+
+function ChatMount({ onRender }: { onRender: (node: ReactNode) => void }) {
+  const chat = Chat({ ...props(follow), close: noop });
+  onRender(chat);
+  return chat;
+}
