@@ -2,10 +2,18 @@ import type { Preview, SeatId, Tile } from "@caxio/shared/contracts/domain";
 import type { RoomSettings } from "@caxio/shared/contracts/settings";
 import type { Assert, Exact } from "@caxio/shared/contracts/type-check";
 import type {
+  ChatErrorCode,
   Command,
   Credential,
   PlayerView,
 } from "@caxio/shared/contracts/wire";
+export const CHAT_HISTORY_LIMIT = 50;
+/** Capture the public name at receipt so a later occupant of this seat cannot relabel old messages. */
+export type ChatEntry = Readonly<{
+  seatId: SeatId;
+  text: string;
+  name?: string;
+}>;
 export type ConnectionState =
   | "DISCONNECTED"
   | "CONNECTING"
@@ -23,9 +31,15 @@ export interface ClientModel {
   readonly revision: number | null;
   readonly selected: readonly Tile[];
   // ERROR sets its code. A rejected server frame sets only errorCode to INVALID_MESSAGE.
-  // Every action except setMuted clears it, including toggleTile. Accepted snapshots clear it only on currentTurn change.
+  // Every game action except setMuted clears it, including toggleTile. Accepted snapshots clear it only on currentTurn change.
   // Controls display errorText(errorCode) while non-null, with no local dismissal state.
   readonly errorCode: string | null;
+  // Optional for the pre-chat session. Append only received deliveries in arrival order and retain
+  // the last CHAT_HISTORY_LIMIT in page memory across socket reconnects and same-room phase changes.
+  // Clear both fields on leave, lost seat or new room. Chat frames never change pending, revision or errorCode.
+  readonly chat?: readonly ChatEntry[];
+  // Set on CHAT_ERROR, clear on the next valid send. Ordinary ERROR frames still set errorCode.
+  readonly chatErrorCode?: ChatErrorCode | null;
   readonly muted: boolean;
   readonly pending: Command | null;
   readonly credential: Credential | null;
@@ -36,7 +50,7 @@ export interface ClientModel {
   } | null;
 }
 export interface ClientActions {
-  // name is the trimmed entry input when isPlayerName accepts it; an empty input omits it (seatLabel display).
+  // Trim entry input and normalize to NFC before isPlayerName. Empty input omits name (seatLabel display).
   // Each request puts it on CREATE_ROOM/JOIN_ROOM as given. The UI remembers it in localStorage caxio.name.
   createRoom(name?: string, settings?: RoomSettings): void;
   joinRoom(roomCode: string, name?: string): void;
@@ -51,6 +65,9 @@ export interface ClientActions {
   // credential and resets the model to entry (DISCONNECTED; no seat, view, revision, time anchor, selection,
   // pending or error), keeping muted. The UI confirms first only while its own seat is active in a running game.
   leaveRoom?(): void;
+  // Optional for the pre-chat session. With a bound seat on an open socket, trim the input, check
+  // isChatText, and send only a valid CHAT request. The server echo adds the sender's entry.
+  sendChat?(text: string): void;
 }
 export interface ClientSession extends ClientActions {
   getState(): ClientModel;
@@ -186,6 +203,8 @@ export type ClientContractCheck = Assert<
       CreateClientSession,
       CreateAudioEffects,
       AudioEffects,
+      typeof CHAT_HISTORY_LIMIT,
+      ChatEntry,
     ],
     [
       StoreSpec,
@@ -196,6 +215,8 @@ export type ClientContractCheck = Assert<
         readonly revision: number | null;
         readonly selected: readonly Tile[];
         readonly errorCode: string | null;
+        readonly chat?: readonly ChatEntry[];
+        readonly chatErrorCode?: ChatErrorCode | null;
         readonly muted: boolean;
         readonly pending: Command | null;
         readonly credential: Credential | null;
@@ -214,6 +235,7 @@ export type ClientContractCheck = Assert<
         pass(): void;
         setMuted(muted: boolean): void;
         leaveRoom?(): void;
+        sendChat?(text: string): void;
       },
       {
         openSocket(events: {
@@ -241,6 +263,8 @@ export type ClientContractCheck = Assert<
         play(events: readonly ClientEffect[]): void;
         dispose(): void;
       },
+      50,
+      Readonly<{ seatId: SeatId; text: string; name?: string }>,
     ]
   >
 >;
